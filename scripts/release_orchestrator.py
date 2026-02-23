@@ -67,13 +67,48 @@ def section(step, title):
     _section(step, title, START_TIME)
 
 
+def get_repo_from_git_remote():
+    """Auto-detect repository name from git remote."""
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            # Extract owner/repo from URL
+            # Handles: https://github.com/owner/repo.git or git@github.com:owner/repo.git
+            if "github.com" in url:
+                if url.startswith("https://"):
+                    parts = url.replace("https://github.com/", "").replace(".git", "").strip("/")
+                elif url.startswith("git@"):
+                    parts = url.replace("git@github.com:", "").replace(".git", "").strip("/")
+                else:
+                    return None
+                return parts
+    except Exception:
+        pass
+    return None
+
+
 # ── Parse Arguments ───────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="Refined RDK-B Release Orchestrator")
-parser.add_argument("--repo", required=True, help="GitHub repo (owner/name)")
+parser.add_argument("--repo", help="GitHub repo (owner/name) - auto-detected from git remote if not provided")
 parser.add_argument("--config", default=".release-config.yml")
 parser.add_argument("--version", help="Override version from config")
 parser.add_argument("--dry-run", action="store_true")
 args = parser.parse_args()
+
+# ── Auto-detect Repository ────────────────────────────────────────────────────
+if args.repo:
+    REPO = args.repo
+else:
+    REPO = get_repo_from_git_remote()
+    if not REPO:
+        print(err("Could not auto-detect repository from git remote."))
+        print("Please provide --repo <owner/name> argument.")
+        sys.exit(1)
+    print(f"  {info(f'Auto-detected repository: {REPO}')}")
 
 # ── Load Configuration ────────────────────────────────────────────────────────
 config_path = Path(args.config)
@@ -110,7 +145,7 @@ STRATEGY = cfg.get("strategy", "").lower()
 CONFIGURED_PRS = parse_pr_list(cfg.get("prs"))
 DRY_RUN = args.dry_run or cfg.get("dry_run", False)
 RELEASE_BRANCH = cfg.get("release_branch", f"release/{VERSION}")
-COMPONENT_NAME = cfg.get("component_name") or args.repo.split("/")[-1]
+COMPONENT_NAME = cfg.get("component_name") or REPO.split("/")[-1]
 
 # Both strategies: Start from develop, create release/x.x.x, merge to main
 # - EXCLUDE: develop → revert excluded PRs → release/x.x.x → main
@@ -174,23 +209,15 @@ if discovery_result:
 else:
     print(f"  {warn('Could not auto-discover PRs - proceeding with configured list')}")
     logger.warning("Could not auto-discover PRs from git history")
-    all_discovered_prs = CONFIGURED_PRS
+    all_discovered_prs = []
     last_tag = None
     last_tag_ref = None
-
-# ── Resolve Operation Plan ────────────────────────────────────────────────────
-section(2, "Resolving Operation Plan")
-
-print(f"\n  📥 INPUTS:")
-print(f"  ├─ Strategy: {STRATEGY.upper()}")
-print(f"  ├─ Last Tag: {last_tag or 'N/A'}")
-print(f"  ├─ PRs Since Tag: {len(all_discovered_prs) if all_discovered_prs else 0}")
-print(f"  └─ Configured PRs: {CONFIGURED_PRS}")
-
-print(f"\n  🔄 PLANNING:")
-
-# Determine which PRs to operate on based on strategy
-if STRATEGY == "exclude":
+    # Create empty discovery result structure for configured PRs
+    from dataclasses import dataclass
+    @dataclass
+    class MinimalDiscoveryResult:
+        pr_commit_map: dict
+    discovery_result = MinimalDiscoveryResult(pr_commit_map={})
     # EXCLUDE: Take all discovered PRs, revert the configured ones
     excluded_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
     not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
@@ -209,6 +236,29 @@ else:
     # INCLUDE: Cherry-pick only the configured PRs
     included_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
     not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
+    
+    # For PRs not found in history, fetch their commits directly from GitHub
+    if not_found and discovery_result:
+        print(f"  ├─ Fetching commits for PRs not in history: {not_found}")
+        for pr_num in not_found:
+            try:
+                result = subprocess.run(
+                    ["gh", "pr", "view", str(pr_num), "--repo", REPO, "--json", "headRefOid"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    pr_data = json.loads(result.stdout)
+                    commit_sha = pr_data.get("headRefOid")
+                    if commit_sha:
+                        discovery_result.pr_commit_map[pr_num] = commit_sha
+                        included_prs.append(pr_num)
+                        print(f"     ✅ PR #{pr_num}: {commit_sha[:8]}")
+            except Exception as e:
+                logger.warning(f"Could not fetch commit for PR #{pr_num}: {e}")
+        
+        # Update not_found list
+        not_found = [pr for pr in CONFIGURED_PRS if pr not in discovery_result.pr_commit_map]
+    
     intake_prs = included_prs
     operation_prs = included_prs  # Cherry-pick oldest first
     operation_type = "cherry-pick"
@@ -231,7 +281,7 @@ pr_metadata = {}
 for pr_num in all_discovered_prs[:100]:  # Limit to avoid rate limits
     try:
         result = subprocess.run(
-            ["gh", "pr", "view", str(pr_num), "--repo", args.repo, "--json", 
+            ["gh", "pr", "view", str(pr_num), "--repo", REPO, "--json", 
              "number,title,author,mergedAt,url"],
             capture_output=True, text=True, timeout=10
         )
@@ -250,14 +300,9 @@ print(f"\n  🔄 PROCESSING:")
 print(f"  ├─ Checking if branch '{RELEASE_BRANCH}' exists...")
 
 # Determine the starting point for the release branch
-if STRATEGY == "include":
-    # INCLUDE: Start from last tag (clean slate, cherry-pick only wanted PRs)
-    branch_start_point = last_tag_ref if last_tag_ref else BASE_BRANCH
-    strategy_note = f"last tag {last_tag_ref}" if last_tag_ref else BASE_BRANCH
-else:
-    # EXCLUDE: Start from develop (has all PRs, revert unwanted ones)
-    branch_start_point = BASE_BRANCH
-    strategy_note = BASE_BRANCH
+# Both strategies now start from develop for consistency
+branch_start_point = BASE_BRANCH
+strategy_note = BASE_BRANCH
 
 print(f"  ├─ Strategy: {STRATEGY.upper()}")
 print(f"  ├─ Starting point: {strategy_note}")
@@ -277,6 +322,12 @@ else:
     print(f"  ├─ Creating new branch from {branch_start_point}...")
     subprocess.run(["git", "checkout", "-b", RELEASE_BRANCH, branch_start_point], check=True)
     print(f"  ✅ Created and switched to {RELEASE_BRANCH}")
+    
+    # For INCLUDE strategy: Reset to last tag, then cherry-pick selected PRs
+    if STRATEGY == "include" and last_tag_ref:
+        print(f"  ├─ Resetting to tag {last_tag_ref} (clean slate for INCLUDE strategy)...")
+        subprocess.run(["git", "reset", "--hard", last_tag_ref], check=True)
+        print(f"  ✅ Reset complete - ready to cherry-pick selected PRs")
 
 # ── Execute Operations ─────────────────────────────────────────────────────────
 section(4, f"Executing {operation_type.upper()} Operations")
@@ -465,7 +516,7 @@ create_pr_result = subprocess.run(
      "--title", pr_title,
      "--body", pr_body,
      "--draft",
-     "--repo", args.repo],
+     "--repo", REPO],
     capture_output=True, text=True
 )
 

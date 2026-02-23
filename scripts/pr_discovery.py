@@ -119,6 +119,7 @@ def extract_pr_from_commit(commit_hash: str, repo_path: str = ".") -> Optional[T
         # Try various PR patterns
         patterns = [
             r'Merge pull request #(\d+)',      # GitHub merge commits
+            r'Merge PR #(\d+)',                # Short merge format
             r'PR[:\s]#(\d+)',                  # PR #123: Title
             r'\(#(\d+)\)',                     # Title (#123)
             r'Closes[:\s]#(\d+)',              # Closes #123
@@ -132,6 +133,7 @@ def extract_pr_from_commit(commit_hash: str, repo_path: str = ".") -> Optional[T
                 pr_num = int(match.group(1))
                 # Extract title (remove PR reference)
                 title = re.sub(r'Merge pull request #\d+\s+from\s+[\w\-/]+\s*', '', commit_msg)
+                title = re.sub(r'Merge PR #\d+[:\s]*', '', title)  # Handle "Merge PR #XX:"
                 title = re.sub(r'PR[:\s]#\d+[:\s]*', '', title)
                 title = re.sub(r'\(#\d+\)', '', title)
                 title = title.strip()
@@ -309,13 +311,10 @@ def print_discovery_summary(discovery: PRDiscoveryResult,
     
     if discovery.all_prs:
         print(f"\n  All PRs since {discovery.last_tag}:")
-        for pr_num in discovery.all_prs[:15]:  # Show first 15
+        for pr_num in discovery.all_prs:  # Show all PRs
             title = discovery.pr_titles.get(pr_num, "")[:60]
             configured = "✓" if pr_num in configured_prs else " "
             print(f"    [{configured}] PR #{pr_num}: {title}")
-        
-        if len(discovery.all_prs) > 15:
-            print(f"    ... and {len(discovery.all_prs) - 15} more")
     
     # Show strategy summary
     print(f"\n  Strategy        : {c(BOLD, strategy.upper())}")
