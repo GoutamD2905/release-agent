@@ -1,99 +1,104 @@
 # 🤖 RDK-B Release Agent
 
-**AI-powered bi-weekly release automation for RDK-B components** — with intelligent conflict resolution that understands C code semantics.
+**Hybrid AI-powered bi-weekly release automation for RDK-B components** — combining rule-based intelligence with LLM strategic decisions for safe, automated release management.
 
-Any RDK-B component can adopt this framework with a **single command** and get automated release branch creation, cherry-pick/revert operations, smart merge conflict resolution, and detailed release reports.
+> **What's New**: Two-phase hybrid intelligence architecture (Feb 2026)  
+> ✅ Rule-based conflict detection + C code pattern analysis  
+> ✅ LLM strategic PR-level decisions (no code mutation)  
+> ✅ Complete semantic analysis (NULL checks, error handling, safety patterns)
 
 ---
 
-## ⚡ Quick Start (3 Steps)
+## ⚡ Quick Start
 
-### Step 1: Adopt the framework
+### Run from Component Directory
 
 ```bash
-# From inside your component repo:
-git clone https://github.com/GoutamD2905/rdkb-release-agent.git /tmp/release-agent
-bash /tmp/release-agent/adopt.sh \
-  --component-repo <org/repo> \
-  --version <X.Y.Z>
-```
+# 1. Clone the release agent into your component repo
+cd /path/to/your-component
+git clone https://github.com/GoutamD2905/release-agent.git
 
-This generates two files:
-- `.release-config.yml` — release configuration (edit PRs list each cycle)
-- `.github/workflows/rdkb-biweekly-release.yml` — GitHub Actions workflow
+# 2. Create your config file
+cat > .release-config.yml << 'EOF'
+version: "2.2.0"
+strategy: "include"
+base_branch: "develop"
 
-### Step 2: Edit your config
-
-```yaml
-# .release-config.yml
-version: "2.4.0"
-strategy: "exclude"
 prs:
-  - 205   # WIP — skip this PR
-  - 310   # Experimental — not ready
-```
+  - 123  # Bug fix
+  - 456  # Feature
+  - 789  # Security patch
 
-### Step 3: Run the release
-
-**Via GitHub Actions:**
-Go to Actions → "RDK-B Bi-Weekly Release Agent" → Run workflow
-
-**Or locally:**
-```bash
-python3 /tmp/release-agent/scripts/orchestrate_release.py \
-  --repo <org/repo> --version 2.4.0 --dry-run
-```
-
----
-
-## 🧠 Smart Conflict Resolution
-
-The heart of this agent — when cherry-pick or revert hits conflicts in C source files, the **semantic-aware merge engine** analyzes each conflict hunk and resolves automatically:
-
-| Confidence | Change Type | Resolution |
-|------------|-------------|------------|
-| 🟢 HIGH | Whitespace/formatting | Keep either side (semantically identical) |
-| 🟢 HIGH | `#include` reorder | Merge and deduplicate both sets |
-| 🟢 HIGH | Comment-only changes | Keep more descriptive version |
-| 🟡 MEDIUM | NULL check / error handling added | Prefer the safety improvement |
-| 🟡 MEDIUM | Brace style differences | Keep project convention |
-| 🔴 LOW | Functional changes | Fallback to ours/theirs (flagged for review) |
-
-### How it works
-
-```
-git cherry-pick fails with conflicts
-        │
-        ▼
-  resolve_conflicts.py --smart
-        │
-        ├─ DU/UD/AA/DD → standard ours/theirs strategy
-        │
-        └─ UU (modify/modify) on .c/.h files
-                │
-                ▼
-          smart_merge.py analyzes each hunk
-                │
-                ├─ classify_hunk_change() → determines change type
-                ├─ resolve_hunk() → picks best resolution + confidence
-                └─ writes JSON report for audit trail
-```
-
-### Configuration
-
-```yaml
-# .release-config.yml
-conflict_resolution:
-  smart_merge: true          # Enable semantic C-aware merge
-  min_confidence: "low"      # "high", "medium", or "low"
-  safety_prefer: true        # Prefer NULL checks, error handling
-
-# Optional: Enable AI resolution for functional conflicts
 llm:
   enabled: true
-  provider: "githubcopilot"               # Supported: "githubcopilot", "openai", "gemini"
-  model: "gpt-5.2"                        # Copilot model version
-  api_key_env: "GITHUB_COPILOT_API_TOKEN" # Must match your GitHub Actions secret name!
+  provider: "openai"
+  model: "gpt-4o-mini"
+  api_key_env: "OPENAI_API_KEY"
+EOF
+
+# 3. Run the release orchestrator
+python3 release-agent/scripts/release_orchestrator.py \
+  --repo GoutamD2905/your-component \
+  --config .release-config.yml \
+  --version 2.2.0
+```
+
+---
+
+## 🧠 Hybrid Intelligence Architecture
+
+### Two-Phase Approach
+
+**PHASE 1: Rule-Based Intelligence**
+- 📋 Fetch PR metadata (via GitHub CLI)
+- 🔍 Detect file overlaps between PRs
+- ⏰ Detect timing conflicts (PRs merged close together)
+- ⚠️ Identify critical files (Makefile, *_init.c, etc.)
+- 🧬 Analyze C code patterns:
+  - NULL checks, error handling
+  - Safety improvements (snprintf, free, etc.)
+  - Change type (cosmetic vs functional)
+
+**PHASE 2: LLM Strategic Decisions**
+- 🤖 LLM analyzes each conflicted PR with:
+  - PR metadata + diff
+  - Detected conflicts
+  - Code pattern analysis (semantic context)
+  - Other PRs in release
+- Makes binary decisions: INCLUDE / EXCLUDE / MANUAL_REVIEW
+- Provides confidence level and detailed rationale
+
+**PHASE 3: Execute Operations**
+- ✅ Cherry-pick/revert entire PRs
+- ❌ NO code-level merging (safe!)
+- 📊 Generate analysis reports
+
+### Code Pattern Analysis
+
+The agent performs **semantic C code analysis** on every PR:
+
+| Pattern | Detection | Impact |
+|---------|-----------|--------|
+| **NULL Checks** | `if (!ptr)`, `if (ptr == NULL)` | Safety improvement |
+| **Error Handling** | `return ANSC_STATUS_FAILURE`, `CcspTraceError` | Robustness |
+| **Safety Patterns** | `snprintf`, `free`, `close` | Memory safety |
+| **Cosmetic Changes** | Whitespace, braces, comments | Low risk |
+| **Functional Changes** | Logic modifications | Requires review |
+
+**Example LLM Decision**:
+```json
+{
+  "pr_number": 123,
+  "decision": "INCLUDE",
+  "confidence": "HIGH",
+  "rationale": "PR adds 3 NULL checks and 2 error handlers. Safety improvements with low risk.",
+  "semantic_analysis": {
+    "change_type": "null_check_added",
+    "null_checks_added": 3,
+    "error_handling_added": 2,
+    "safety_focused": true
+  }
+}
 ```
 
 ---
@@ -101,119 +106,303 @@ llm:
 ## 📁 Repository Structure
 
 ```
-rdkb-release-agent/
-├── adopt.sh                       # Single-command adoption script
-├── README.md
+release-agent/
+├── README.md                           # This file
 ├── scripts/
-│   ├── orchestrate_release.py     # Main orchestrator
-│   ├── resolve_conflicts.py       # Conflict resolver (--smart flag)
-│   ├── smart_merge.py             # Semantic C-aware merge engine
-│   ├── analyze_dependencies.py    # PR dependency analyzer
-│   ├── generate_report.py         # Release report generator
-│   ├── create_release_branch.sh   # Branch creation
-│   ├── safe_cherry_pick.sh        # Safe cherry-pick + auto-resolve
-│   ├── safe_revert.sh             # Safe revert + auto-resolve
-│   └── trigger_release.sh         # Local trigger wrapper
-├── config/
-│   └── release-config-schema.yml  # Full config reference
-├── examples/
-│   ├── exclude-mode.release-config.yml
-│   └── include-mode.release-config.yml
-├── tests/
-│   └── test_smart_merge.py        # 18 unit tests
-└── .github/workflows/
-    └── release-agent.yml          # CI for the agent itself
+│   ├── release_orchestrator.py         # Main orchestrator (creates branch + orchestrates)
+│   ├── pr_conflict_analyzer.py         # Phase 1: Detection + semantics
+│   ├── llm_pr_decision.py              # Phase 2: LLM strategic decisions
+│   ├── code_pattern_analyzer.py        # C/C++ semantic code analysis
+│   ├── llm_providers.py                # LLM API provider functions
+│   ├── pr_level_resolver.py            # PR-level conflict resolution
+│   └── utils.py                        # Shared utilities
+└── config/
+    └── .release-config.yml             # Main configuration (all options)
 ```
 
 ---
 
-## 🔧 Configuration Reference
+## 🔧 Configuration
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `version` | ✅ | — | Release version (semver) |
-| `strategy` | ✅ | — | `"exclude"` or `"include"` |
-| `prs` | ✅* | `[]` | PR numbers to exclude/include |
-| `component_name` | — | repo name | Display name in reports |
-| `base_branch` | — | `"develop"` | Integration branch |
-| `dry_run` | — | `false` | Simulate without pushing |
-| `conflict_policy` | — | `"pause"` | `"pause"` or `"skip"` |
-| `conflict_resolution.smart_merge` | — | `true` | Enable smart merge |
-| `conflict_resolution.min_confidence` | — | `"low"` | Minimum confidence level |
-| `conflict_resolution.safety_prefer` | — | `true` | Prefer safety improvements |
-| `notify` | — | `[]` | GitHub handles to @mention |
-
-*Required for `include` strategy. Optional for `exclude` (empty = take all PRs).
-
----
-
-## 📊 Release Reports
-
-The agent generates a comprehensive Markdown release report including:
-
-- ✅ PRs included in the release
-- ⚠️ Conflicts detected (with resolution details)
-- 🔗 Dependency analysis
-- 🧠 Smart conflict resolution summary (per-hunk confidence breakdown)
-- 📋 Next steps for component owner
-
-Reports are automatically posted to the GitHub Actions summary.
-
----
-
-## 🚀 Strategies
-
-### Exclude Mode (default)
-Start from `develop`, take ALL merged PRs **except** the ones you list:
+### Basic Configuration
 
 ```yaml
-strategy: "exclude"
+# .release-config.yml
+version: "2.4.0"
+strategy: "include"              # or "exclude"
+base_branch: "develop"
+
 prs:
-  - 205   # Not ready
-  - 310   # Experimental
+  - 100  # Bug fix
+  - 150  # Security patch
+
+component_name: "rdkb-wifi"      # optional
+dry_run: false                   # true to simulate
 ```
 
-### Include Mode
-Start from `main`, cherry-pick **only** the PRs you list:
+### LLM Configuration
+
+```yaml
+llm:
+  enabled: true
+  provider: "openai"              # openai, gemini, githubcopilot, azureopenai, ollama
+  model: "gpt-4o-mini"
+  api_key_env: "OPENAI_API_KEY"
+  temperature: 0.2
+  timeout_seconds: 60
+  max_calls_per_run: 50
+```
+
+### Supported LLM Providers
+
+| Provider | API Key | Endpoint | Example Model |
+|----------|---------|----------|---------------|
+| `openai` | ✅ | ❌ | `gpt-4o-mini` |
+| `gemini` | ✅ | ❌ | `gemini-2.0-flash` |
+| `githubcopilot` | ✅ | ❌ | `gpt-4o` |
+| `azureopenai` | ✅ | ✅ | `gpt-4` |
+| `ollama` | ❌ | ✅ | `deepseek-coder:6.7b` |
+
+---
+
+## 🚀 Release Strategies
+
+### Include Mode (Whitelist)
+
+Cherry-pick only specified PRs:
 
 ```yaml
 strategy: "include"
-prs:
-  - 100   # Bug fix
-  - 150   # Security patch
+base_branch: "main"
+prs: [123, 456, 789]  # Only these PRs
+```
+
+**Use when**: Tight control over release content.
+
+### Exclude Mode (Blacklist)
+
+Take everything except specified PRs:
+
+```yaml
+strategy: "exclude"
+base_branch: "develop"
+prs: [205, 310]  # Skip these PRs
+```
+
+**Use when**: Most changes are release-ready.
+
+---
+
+## 🛠️ Command-Line Usage
+
+```bash
+python3 release-agent/scripts/release_orchestrator.py \
+  --repo <owner/repo>              # Required
+  --config <path>                   # Optional (default: .release-config.yml)
+  --version <version>               # Optional (overrides config)
+  --dry-run                         # Optional (simulate)
+```
+
+### Examples
+
+**Production Release**:
+```bash
+python3 release-agent/scripts/release_orchestrator.py \
+  --repo rdkcentral/rdkb-CcspPandM \
+  --config .release-config.yml \
+  --version 2.4.0
+```
+
+**Test Run**:
+```bash
+python3 release-agent/scripts/release_orchestrator.py \
+  --repo rdkcentral/rdkb-wifi \
+  --dry-run
 ```
 
 ---
 
-## 🛠️ adopt.sh Options
+## 📊 Output & Results
 
+The orchestrator generates detailed JSON files in `/tmp/rdkb-release-conflicts/`:
+
+### `conflict_analysis.json`
+Contains:
+- PR metadata (title, author, files changed)
+- **Semantic analysis** (change types, pattern counts)
+- Conflict detection (file overlaps, timing, critical files)
+
+### `llm_decisions.json`
+Contains:
+- Per-PR decisions (INCLUDE/EXCLUDE/MANUAL_REVIEW)
+- Confidence levels
+- Detailed rationale
+- Required dependencies
+- Risk/benefit analysis
+
+---
+
+## 🎯 Pattern Intelligence
+
+### Change Type Classification
+
+| Type | Examples | Risk |
+|------|----------|------|
+| `whitespace_only` | Formatting | 🟢 Very Low |
+| `include_reorder` | `#include` reorg | 🟢 Very Low |
+| `comment_only` | Docs | 🟢 Very Low |
+| `null_check_added` | `if (!ptr)` | 🟡 Low (beneficial) |
+| `error_handling` | `CcspTraceError` | 🟡 Low (beneficial) |
+| `safety_improvement` | `snprintf` | 🟡 Low (beneficial) |
+| `functional` | Logic changes | 🔴 Medium-High |
+
+### Detection Examples
+
+**NULL Check**:
+```c
++ if (!ptr) return ANSC_STATUS_FAILURE;
 ```
-Usage:
-  ./adopt.sh --component-repo <org/repo> --version <X.Y.Z> [options]
+→ `null_check_added`, `safety_focused: true`
 
-Required:
-  --component-repo   GitHub org/repo (e.g. rdkcentral/rdkb-wifi)
-  --version          Release version (e.g. 2.4.0)
+**Safety Improvement**:
+```c
+- strcpy(buffer, source);
++ snprintf(buffer, sizeof(buffer), "%s", source);
+```
+→ `safety_improvement`
 
-Optional:
-  --agent-repo       Agent repo (default: GoutamD2905/rdkb-release-agent)
-  --strategy         exclude or include (default: exclude)
-  --base-branch      Integration branch (default: develop)
-  --output-dir       Where to write files (default: current dir)
-  --dry-run          Show what would be created without writing
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**`ModuleNotFoundError: No module named 'yaml'`**
+```bash
+pip install pyyaml
+```
+
+**`gh: command not found`**
+- Install GitHub CLI: https://cli.github.com
+
+**`LLM API key not set`**
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+### Debug
+
+```bash
+# View conflict analysis
+cat /tmp/rdkb-release-conflicts/conflict_analysis.json | jq '.pr_semantics'
+
+# View LLM decisions
+cat /tmp/rdkb-release-conflicts/llm_decisions.json | jq '.'
 ```
 
 ---
 
-## 📝 License
+## 🧪 Testing
 
-Apache 2.0
+### Compile Check
+```bash
+cd release-agent/scripts
+python3 -m py_compile *.py
+```
+
+### Test Pattern Analyzer
+```bash
+python3 -c "
+from code_pattern_analyzer import analyze_pr_diff
+
+diff = '''
++ if (!ptr) {
++     CcspTraceError(\"NULL pointer\");
++     return ANSC_STATUS_FAILURE;
++ }
+'''
+
+result = analyze_pr_diff(diff)
+print(f'Type: {result.dominant_type.value}')
+print(f'Safety: {result.safety_focused}')
+print(f'Summary: {result.summary}')
+"
+```
+
+---
+
+## 🔐 Security Best Practices
+
+### API Key Management
+
+```bash
+# Set environment variables (never commit!)
+export OPENAI_API_KEY="sk-..."
+
+# For GitHub Actions, use encrypted secrets
+```
+
+### Always Test First
+
+```bash
+# Always use --dry-run first
+python3 release-agent/scripts/release_orchestrator.py \
+  --repo your/repo \
+  --dry-run
+```
+
+---
+
+## 📚 Architecture
+
+### Active Modules (2,280 lines)
+
+| Module | Purpose | Lines |
+|--------|---------|-------|
+| `release_orchestrator.py` | Main orchestrator | 358 |
+| `pr_conflict_analyzer.py` | Phase 1 detection | 368 |
+| `llm_pr_decision.py` | Phase 2 LLM | 413 |
+| `code_pattern_analyzer.py` | Semantic analysis | 368 |
+| `llm_providers.py` | API clients | 366 |
+| `pr_level_resolver.py` | Conflict handling | 346 |
+| `utils.py` | Utilities | 61 |
+
+### Deprecated Modules
+
+See [scripts/deprecated/README.md](scripts/deprecated/README.md) for:
+- Old code-level merging approach
+- Why it was replaced
+- Migration guide
 
 ---
 
 ## 🤝 Contributing
 
-1. Fork this repo
+1. Fork the repository
 2. Create a feature branch
-3. Run tests: `python3 tests/test_smart_merge.py`
-4. Submit a PR
+3. Make changes and test
+4. Submit a Pull Request
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+## 👥 Authors
+
+**Goutam Das** ([@GoutamD2905](https://github.com/GoutamD2905))
+
+---
+
+## 📞 Support
+
+- **Issues**: https://github.com/GoutamD2905/release-agent/issues
+- **Discussions**: https://github.com/GoutamD2905/release-agent/discussions
+
+---
+
+**Last Updated**: February 23, 2026  
+**Version**: 2.0.0 (Hybrid Intelligence Architecture)

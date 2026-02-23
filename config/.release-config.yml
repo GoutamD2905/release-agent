@@ -1,0 +1,116 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# RDK-B Release Agent — Configuration Template
+# ═══════════════════════════════════════════════════════════════════════════
+# 
+# This is a TEMPLATE file with all possible configuration options and examples.
+# 
+# Setup Instructions:
+# 1. Copy this file to YOUR component repository root as: .release-config.yml
+# 2. Customize the copied file in YOUR component repo with your release details
+# 3. Each component maintains its own .release-config.yml
+# 
+# Location: release-agent/config/.release-config.yml (template - do not modify)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ───────────────────────────────────────────────────────────────────────────
+# Basic Configuration
+# ───────────────────────────────────────────────────────────────────────────
+component_name: "rdkb-wifi"        # Your component name (shown in reports)
+version: "2.4.0"                   # Release version number
+base_branch: "develop"             # Integration branch (develop/main/master)
+
+# ───────────────────────────────────────────────────────────────────────────
+# Strategy: Choose ONE approach
+# ───────────────────────────────────────────────────────────────────────────
+# Option 1: INCLUDE mode — "Take ONLY the PRs I list"
+#   Use when: You want tight control, cherry-pick specific PRs only
+#   Example: Only PRs 101, 150, 200 go into the release
+strategy: "include"
+prs:
+  - 101   # Bug fix: RDKB-12345 DHCP lease renewal
+  - 150   # Security: patch CVE-2026-001
+  - 200   # Perf: reduce DHCP init time
+
+# Option 2: EXCLUDE mode — "Take ALL PRs EXCEPT the ones I list"
+#   Use when: Most PRs are ready, just need to block a few WIPs
+#   Example: All PRs from develop except 205, 310
+# strategy: "exclude"
+# prs:
+#   - 205   # WIP: new radio driver — not ready
+#   - 310   # Experimental: mesh refactor — needs more testing
+
+# ───────────────────────────────────────────────────────────────────────────
+# LLM Configuration (AI-Powered PR Analysis)
+# ───────────────────────────────────────────────────────────────────────────
+llm:
+  enabled: true                     # Set to false to skip LLM analysis
+  provider: "openai"                # openai | gemini | githubcopilot | ollama | azureopenai
+  model: "gpt-4o-mini"              # Cost-effective and fast
+  api_key_env: "OPENAI_API_KEY"    # Environment variable with your API key
+  temperature: 0.1                  # Lower = more deterministic decisions
+  max_calls_per_run: 5              # Rate limit per release run
+  timeout_seconds: 10               # Per-call timeout
+
+# Other LLM Providers (uncomment and modify as needed):
+#
+# Google Gemini:
+#   provider: "gemini"
+#   model: "gemini-2.0-flash-exp"
+#   api_key_env: "GOOGLE_API_KEY"
+#
+# GitHub Copilot (via GitHub Models):
+#   provider: "githubcopilot"
+#   model: "gpt-4o"
+#   api_key_env: "GITHUB_TOKEN"
+#
+# Ollama (Local, no API key needed):
+#   provider: "ollama"
+#   model: "deepseek-coder:6.7b"
+#   api_key_env: ""
+#   endpoint: "http://localhost:11434/v1/chat/completions"
+#
+# Azure OpenAI:
+#   provider: "azureopenai"
+#   model: "gpt-4o"
+#   endpoint: "https://your-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-08-01-preview"
+#   api_key_env: "AZURE_OPENAI_API_KEY"
+
+# ───────────────────────────────────────────────────────────────────────────
+# Runtime & Notification Settings
+# ───────────────────────────────────────────────────────────────────────────
+dry_run: false                      # true = preview only, no branch creation
+notify:
+  - "@your-github-handle"           # GitHub username(s) to notify
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Quick Start for Component Owners:
+# ═══════════════════════════════════════════════════════════════════════════
+# 
+# Step 1: Copy this file to YOUR component repository
+#         cp release-agent/config/.release-config.yml your-component/.release-config.yml
+# 
+# Step 2: Edit YOUR copy and update these fields:
+#         • component_name: "your-component"     (e.g., "rdkb-wifi")
+#         • version: "2.4.0"                     (your release version)
+#         • prs: [101, 150, 200]                 (PR numbers to include/exclude)
+#         • notify: ["@your-handle"]             (your GitHub username)
+# 
+# Step 3: Set API key (if using LLM)
+#         export OPENAI_API_KEY="sk-..."
+# 
+# Step 4: Run from YOUR component directory
+#         cd your-component/
+#         python3 ../release-agent/scripts/release_orchestrator.py \
+#           --repo owner/your-component \
+#           --config .release-config.yml \
+#           --version 2.4.0
+# 
+# Example:
+#   cp ~/release-agent/config/.release-config.yml ~/rdkb-wifi/.release-config.yml
+#   cd ~/rdkb-wifi
+#   # Edit .release-config.yml (update component_name, version, prs, notify)
+#   export OPENAI_API_KEY="sk-..."
+#   python3 ~/release-agent/scripts/release_orchestrator.py \
+#     --repo comcast/rdkb-wifi --config .release-config.yml --version 2.4.0
+# 
+# ═══════════════════════════════════════════════════════════════════════════
