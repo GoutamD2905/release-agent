@@ -218,6 +218,20 @@ else:
     class MinimalDiscoveryResult:
         pr_commit_map: dict
     discovery_result = MinimalDiscoveryResult(pr_commit_map={})
+
+# ── Resolve Operation Plan ────────────────────────────────────────────────────
+section(2, "Resolving Operation Plan")
+
+print(f"\n  📥 INPUTS:")
+print(f"  ├─ Strategy: {STRATEGY.upper()}")
+print(f"  ├─ Last Tag: {last_tag or 'None'}")
+print(f"  ├─ PRs Since Tag: {len(all_discovered_prs)}")
+print(f"  └─ Configured PRs: {CONFIGURED_PRS}")
+
+print(f"\n  🔄 PLANNING:")
+print(f"  ├─ Total PRs in window: {len(all_discovered_prs)}")
+
+if STRATEGY == "exclude":
     # EXCLUDE: Take all discovered PRs, revert the configured ones
     excluded_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
     not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
@@ -225,14 +239,12 @@ else:
     operation_prs = list(reversed(excluded_prs))  # Revert newest first
     operation_type = "revert"
     
-    print(f"  ├─ Total PRs in window: {len(all_discovered_prs)}")
     print(f"  ├─ PRs to REVERT (exclude): {excluded_prs}")
-    print(f"  ├─ PRs going into release: {intake_prs}")
     if not_found:
         print(f"  {warn(f'└─ PRs not found in window (ignored): {not_found}')}")
     else:
         print(f"  └─ All configured PRs found")
-else:
+elif STRATEGY == "include":
     # INCLUDE: Cherry-pick only the configured PRs
     included_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
     not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
@@ -263,7 +275,6 @@ else:
     operation_prs = included_prs  # Cherry-pick oldest first
     operation_type = "cherry-pick"
     
-    print(f"  ├─ Total PRs in window: {len(all_discovered_prs)}")
     print(f"  ├─ PRs to CHERRY-PICK (include): {included_prs}")
     if not_found:
         print(f"  {warn(f'└─ PRs not found in window (ignored): {not_found}')}")
