@@ -1,0 +1,20 @@
+# RDK-B Bi-Weekly Release — Exclusion Example
+# Copy this to your component repo root as: .release-config.yml
+#
+# "Take ALL PRs from develop — EXCEPT the ones I list"
+# Use when: most PRs are ready, you just need to block a few WIPs
+
+component_name: "rdkb-wifi"        # ← your component name (shown in reports)
+version: "2.4.0"                   # ← release version
+strategy: "exclude"
+base_branch: "develop"             # ← your integration branch (develop/main/master)
+
+# PRs to SKIP — list PR numbers of WIPs or not-ready changes
+prs:
+  - 205   # WIP: new radio driver — not ready
+  - 310   # Experimental: mesh refactor — needs more testing
+
+dry_run: false
+conflict_policy: "pause"           # pause or skip
+notify:
+  - "@your-github-handle"          # ← replace with your GitHub username

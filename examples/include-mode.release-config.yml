@@ -1,0 +1,22 @@
+# RDK-B Bi-Weekly Release — Inclusion Example
+# Copy this to your component repo root as: .release-config.yml
+#
+# "Take ONLY the PRs I list — nothing else"
+# Use when: tight control needed, cherry-pick specific PRs only
+
+component_name: "rdkb-dhcp"        # ← your component name (shown in reports)
+version: "2.4.0"                   # ← release version
+strategy: "include"
+base_branch: "develop"             # ← your integration branch (develop/main/master)
+
+# PRs to INCLUDE — ONLY these will go into the release branch
+prs:
+  - 101   # Bug fix: RDKB-12345 DHCP lease renewal
+  - 150   # Security: patch CVE-2026-001
+  - 200   # Perf: reduce DHCP init time
+
+dry_run: false
+conflict_policy: "pause"           # pause or skip
+notify:
+  - "@your-github-handle"          # ← replace with your GitHub username
+
