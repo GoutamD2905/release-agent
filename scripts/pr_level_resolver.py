@@ -23,6 +23,13 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from dataclasses import dataclass
 
+# Import LLM conflict resolver
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    from llm_conflict_resolver import LLMConflictResolver
+except ImportError:
+    LLMConflictResolver = None
+
 
 @dataclass
 class ResolutionAction:
@@ -36,16 +43,26 @@ class ResolutionAction:
 class PRLevelResolver:
     """Resolver that makes PR-level decisions (no code merging)."""
     
-    def __init__(self, mode: str, decision_maker=None):
+    def __init__(self, mode: str, decision_maker=None, config: Dict = None):
         """
         Args:
             mode: "cherry-pick" or "revert"
             decision_maker: LLMPRDecisionMaker instance (optional)
+            config: Release config dict (for LLM conflict resolver)
         """
         self.mode = mode
         self.decision_maker = decision_maker
+        self.config = config or {}
         self.resolution_log = Path("/tmp/rdkb-release-conflicts/pr_resolutions.json")
         self.resolution_log.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize LLM conflict resolver if available and enabled
+        self.conflict_resolver = None
+        if LLMConflictResolver and self.config.get("llm", {}).get("enabled"):
+            try:
+                self.conflict_resolver = LLMConflictResolver(self.config)
+            except Exception as e:
+                print(f"  ⚠️  Could not initialize LLM conflict resolver: {e}")
         
         # Load existing resolutions
         self.resolutions = {}
@@ -196,13 +213,23 @@ class PRLevelResolver:
         with open(self.resolution_log, "w") as f:
             json.dump(self.resolutions, f, indent=2)
     
-    def apply_action(self, action: ResolutionAction, commit_sha: str) -> bool:
+    def _is_merge_commit(self, commit_sha: str) -> bool:
+        """Check if a commit is a merge commit."""
+        result = subprocess.run(
+            ["git", "rev-parse", f"{commit_sha}^2"],
+            capture_output=True, text=True
+        )
+        return result.returncode == 0
+    
+    def apply_action(self, action: ResolutionAction, commit_sha: str, pr_number: int = None, pr_metadata: Dict = None) -> bool:
         """
         Apply the resolution action.
         
         Args:
             action: The action to take
             commit_sha: The commit SHA for the PR
+            pr_number: PR number (for conflict resolution)
+            pr_metadata: PR metadata (for conflict resolution)
             
         Returns:
             True if action was successfully applied
@@ -218,27 +245,60 @@ class PRLevelResolver:
             
             print(f"  ✅ Attempting to {self.mode} PR (full PR accepted)")
             
-            # Try the operation again
+            # Check if this is a merge commit
+            is_merge = self._is_merge_commit(commit_sha)
+            
+            # Try the operation
             if self.mode == "cherry-pick":
-                result = subprocess.run(
-                    ["git", "cherry-pick", commit_sha],
-                    capture_output=True, text=True
-                )
+                cmd = ["git", "cherry-pick"]
+                if is_merge:
+                    cmd.extend(["-m", "1"])  # Use first parent for merge commits
+                cmd.append(commit_sha)
+                result = subprocess.run(cmd, capture_output=True, text=True)
             else:
-                result = subprocess.run(
-                    ["git", "revert", "-m", "1", commit_sha],
-                    capture_output=True, text=True
-                )
+                cmd = ["git", "revert"]
+                if is_merge:
+                    cmd.extend(["-m", "1"])
+                cmd.append(commit_sha)
+                result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode == 0:
                 print(f"  ✅ Successfully applied PR")
                 return True
             else:
-                # Still conflicts - this shouldn't happen if LLM decided correctly
-                print(f"  ⚠️  Conflict persists even after LLM approval")
-                print(f"  ℹ️  This may require dependency PRs or manual intervention")
-                self._abort_git_operation()
-                return False
+                # Check if we have conflicts
+                conflict_files = check_for_conflicts()
+                if conflict_files and self.conflict_resolver and pr_metadata:
+                    # Try to resolve conflicts using LLM
+                    print(f"  🔧 Attempting LLM-powered conflict resolution...")
+                    resolved = self.conflict_resolver.resolve_all_conflicts(
+                        pr_number or action.pr_number,
+                        pr_metadata,
+                        operation=self.mode
+                    )
+                    
+                    if resolved:
+                        # Continue the operation
+                        continue_cmd = ["git", self.mode, "--continue"]
+                        continue_result = subprocess.run(continue_cmd, capture_output=True, text=True)
+                        
+                        if continue_result.returncode == 0:
+                            print(f"  ✅ Conflicts resolved and PR applied!")
+                            return True
+                        else:
+                            print(f"  ❌ Failed to continue after resolution: {continue_result.stderr}")
+                            self._abort_git_operation()
+                            return False
+                    else:
+                        print(f"  ❌ LLM conflict resolution failed")
+                        self._abort_git_operation()
+                        return False
+                else:
+                    # No conflict resolver or no conflicts
+                    print(f"  ⚠️  Operation failed: {result.stderr}")
+                    print(f"  ℹ️  This may require dependency PRs or manual intervention")
+                    self._abort_git_operation()
+                    return False
         
         elif action.action == "EXCLUDE":
             print(f"  ⏭️  Skipping PR entirely (excluded by LLM decision)")

@@ -61,6 +61,7 @@ class PRMetadata:
     additions: int
     deletions: int
     commits: int
+    merge_commit_sha: str = ""  # Merge commit SHA for cherry-picking
 
 
 @dataclass
@@ -93,10 +94,10 @@ class PRConflictAnalyzer:
         
         for pr_num in pr_numbers:
             try:
-                # Fetch PR details
+                # Fetch PR details including merge commit SHA
                 result = subprocess.run(
                     ["gh", "pr", "view", str(pr_num), "--repo", self.repo,
-                     "--json", "number,title,author,mergedAt,files,additions,deletions,commits"],
+                     "--json", "number,title,author,mergedAt,files,additions,deletions,commits,mergeCommit"],
                     capture_output=True, text=True, timeout=30
                 )
                 
@@ -107,6 +108,10 @@ class PRConflictAnalyzer:
                 data = json.loads(result.stdout)
                 files = set(f["path"] for f in data.get("files", []))
                 
+                # Get merge commit SHA
+                merge_commit = data.get("mergeCommit", {})
+                merge_commit_sha = merge_commit.get("oid", "") if merge_commit else ""
+                
                 metadata = PRMetadata(
                     number=data["number"],
                     title=data.get("title", ""),
@@ -115,7 +120,8 @@ class PRConflictAnalyzer:
                     files_changed=files,
                     additions=data.get("additions", 0),
                     deletions=data.get("deletions", 0),
-                    commits=data.get("commits", 0)
+                    commits=data.get("commits", 0),
+                    merge_commit_sha=merge_commit_sha
                 )
                 
                 self.pr_metadata[pr_num] = metadata
