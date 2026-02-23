@@ -91,8 +91,16 @@ STRATEGY = cfg.get("strategy", "").lower()
 CONFIGURED_PRS = [int(p) for p in cfg.get("prs") or []]
 DRY_RUN = args.dry_run or cfg.get("dry_run", False)
 RELEASE_BRANCH = cfg.get("release_branch", f"release/{VERSION}")
-BASE_BRANCH = cfg.get("base_branch", "develop")
 COMPONENT_NAME = cfg.get("component_name") or args.repo.split("/")[-1]
+
+# Both strategies: Start from develop, create release/x.x.x, merge to main
+# - EXCLUDE: develop → revert excluded PRs → release/x.x.x → main
+# - INCLUDE: develop → cherry-pick included PRs → release/x.x.x → main
+DEFAULT_BASE_BRANCH = "develop"
+DEFAULT_TARGET_BRANCH = "main"
+
+BASE_BRANCH = cfg.get("base_branch", DEFAULT_BASE_BRANCH)
+TARGET_BRANCH = cfg.get("target_branch", DEFAULT_TARGET_BRANCH)
 
 # Validate config
 errors = []
@@ -114,7 +122,8 @@ print(f"  {'Component':<16}: {COMPONENT_NAME}")
 print(f"  {'Repo':<16}: {args.repo}")
 print(f"  {'Version':<16}: {VERSION}")
 print(f"  {'Strategy':<16}: {STRATEGY.upper()}")
-print(f"  {'Base Branch':<16}: {BASE_BRANCH}")
+print(f"  {'Create From':<16}: {BASE_BRANCH} (branch base)")
+print(f"  {'Merge To':<16}: {TARGET_BRANCH} (draft PR target)")
 print(f"  {'Release Branch':<16}: {RELEASE_BRANCH}")
 print(f"  {'Dry Run':<16}: {DRY_RUN}")
 print(c(BOLD, "═" * 64))
@@ -615,7 +624,7 @@ if successful_prs and not DRY_RUN:
     print(f"  ├─ Successful PRs: {len(successful_prs)}")
     print(f"  ├─ Conflicts Resolved: {conflicts_resolved}")
     print(f"  ├─ Release Branch: {RELEASE_BRANCH}")
-    print(f"  └─ Target Base: {BASE_BRANCH}")
+    print(f"  └─ Target for Draft PR: {TARGET_BRANCH}")
     
     print(f"\n  🔄 PROCESSING:")
     
@@ -663,7 +672,8 @@ if successful_prs and not DRY_RUN:
 
 ## Summary
 - **Strategy**: {STRATEGY.upper()}
-- **Base Branch**: {BASE_BRANCH}
+- **Created From**: {BASE_BRANCH}
+- **Merging To**: {TARGET_BRANCH}
 - **PRs Included**: {len(successful_prs)}
 - **PRs Skipped**: {len(skipped_prs)}
 - **LLM Decisions**: {len(pr_decisions)}
@@ -712,7 +722,7 @@ if successful_prs and not DRY_RUN:
         pr_title = f"Release {VERSION}"
         create_pr_result = subprocess.run(
             ["gh", "pr", "create",
-             "--base", BASE_BRANCH,
+             "--base", TARGET_BRANCH,
              "--head", RELEASE_BRANCH,
              "--title", pr_title,
              "--body", pr_body,
