@@ -619,15 +619,38 @@ if successful_prs and not DRY_RUN:
     
     print(f"\n  🔄 PROCESSING:")
     
-    # Push the release branch
-    print(f"  📤 Step 1: Pushing {RELEASE_BRANCH} to remote...")
-    push_result = subprocess.run(
-        ["git", "push", "-u", "origin", RELEASE_BRANCH],
+    # Check if remote branch exists
+    print(f"  🔍 Checking if {RELEASE_BRANCH} exists on remote...")
+    remote_check = subprocess.run(
+        ["git", "ls-remote", "--heads", "origin", RELEASE_BRANCH],
         capture_output=True, text=True
     )
     
+    remote_exists = remote_check.returncode == 0 and remote_check.stdout.strip()
+    
+    # Push the release branch
+    print(f"  📤 Step 1: Pushing {RELEASE_BRANCH} to remote...")
+    
+    if remote_exists:
+        print(f"  ⚠️  Remote branch already exists, updating with --force-with-lease...")
+        # Use --force-with-lease for safe force push (won't overwrite unexpected changes)
+        push_result = subprocess.run(
+            ["git", "push", "--force-with-lease", "origin", RELEASE_BRANCH],
+            capture_output=True, text=True
+        )
+    else:
+        print(f"  📤 Creating new remote branch...")
+        # First time push
+        push_result = subprocess.run(
+            ["git", "push", "-u", "origin", RELEASE_BRANCH],
+            capture_output=True, text=True
+        )
+    
     if push_result.returncode == 0:
-        print(f"  ✅ Branch pushed successfully")
+        if remote_exists:
+            print(f"  ✅ Branch updated successfully (force-pushed)")
+        else:
+            print(f"  ✅ Branch pushed successfully")
         
         # Create draft PR
         print(f"\n  📝 Step 2: Creating draft pull request...")
@@ -718,6 +741,23 @@ if successful_prs and not DRY_RUN:
     else:
         print(f"\n  ❌ Failed to push branch")
         print(f"  Error: {push_result.stderr}")
+        
+        # Provide helpful troubleshooting steps
+        if "non-fast-forward" in push_result.stderr or "rejected" in push_result.stderr:
+            print(f"\n  💡 TROUBLESHOOTING:")
+            print(f"  The remote branch has changes not in your local branch.")
+            print(f"  Options:")
+            print(f"    1. Delete remote branch and try again:")
+            print(f"       git push origin --delete {RELEASE_BRANCH}")
+            print(f"       (then re-run the orchestrator)")
+            print(f"    2. Pull remote changes first:")
+            print(f"       git pull origin {RELEASE_BRANCH}")
+            print(f"       (then re-run the orchestrator)")
+            print(f"    3. Fetch and reset to latest:")
+            print(f"       git fetch origin")
+            print(f"       git reset --hard origin/{BASE_BRANCH}")
+            print(f"       (then re-run the orchestrator)")
+        
         logger.warning(f"Failed to push branch: {push_result.stderr}")
 elif DRY_RUN:
     print(f"\n  ℹ️  DRY RUN MODE: Skipping draft PR creation")
