@@ -258,10 +258,6 @@ Every run creates:
 - All decisions explained with rationale
 - Action items for next steps
 
-**📄 See**: [Example Report](docs/REPORT_EXAMPLE.md) for a complete sample
-
----
-
 ---
 
 ## 🔧 Configuration
@@ -405,29 +401,194 @@ Agent will:
 
 ## 🚀 Release Strategies
 
-### Include Mode (Whitelist)
+### Visual Overview: INCLUDE vs EXCLUDE
 
-Cherry-pick only specified PRs:
+Both strategies work with PRs from your `base_branch` (usually `develop`), but use different operations:
 
-```yaml
-strategy: "include"
-base_branch: "main"
-prs: [123, 456, 789]  # Only these PRs
+```
+┌─────────────────────────────┬─────────────────────────────┐
+│    INCLUDE Strategy         │    EXCLUDE Strategy         │
+├─────────────────────────────┼─────────────────────────────┤
+│ Start: Tag 2.1.1 (empty)    │ Start: develop (full)       │
+│ Operation: CHERRY-PICK      │ Operation: REVERT           │
+│ List: What to ADD           │ List: What to REMOVE        │
+│                             │                             │
+│ Example Config:             │ Example Config:             │
+│   prs: [19, 20, 21]         │   prs: [1, 2]               │
+│                             │                             │
+│ Process:                    │ Process:                    │
+│ 1. Start clean              │ 1. Start with everything    │
+│ 2. + Add PR #19             │ 2. - Remove PR #2           │
+│ 3. + Add PR #20             │ 3. - Remove PR #1           │
+│ 4. + Add PR #21             │ 4. Done                     │
+│                             │                             │
+│ Result: ONLY 3 PRs          │ Result: ALL except 2 PRs    │
+│        (19, 20, 21)         │        (3-21, 39)           │
+│                             │                             │
+│ Use When:                   │ Use When:                   │
+│ • Hotfix release            │ • Regular release           │
+│ • Few critical PRs          │ • Most PRs ready            │
+│ • Minimal changes           │ • Few PRs problematic       │
+└─────────────────────────────┴─────────────────────────────┘
 ```
 
-**Use when**: Tight control over release content.
+---
 
-### Exclude Mode (Blacklist)
+### INCLUDE Strategy (Cherry-Pick) - Detailed Flow
 
-Take everything except specified PRs:
+**Starting Point**: Last git tag (clean baseline from previous release)
 
+```
+Git Timeline:
+════════════════════════════════════════════════════════════
+
+Tag 2.1.1 (Released 3 months ago)
+   │  📦 Clean baseline - production code
+   │
+   ├─ [develop branch continues...]
+   │
+   ├─ PR #1 ✅ merged → develop
+   ├─ PR #2 ✅ merged → develop  
+   ├─ PR #3 ✅ merged → develop
+   ├─ ...
+   ├─ PR #19 ✅ merged → develop  ← We want this
+   ├─ PR #20 ✅ merged → develop  ← We want this
+   ├─ PR #21 ✅ merged → develop  ← We want this
+   ├─ PR #39 ✅ merged → develop
+   │
+   ▼
+Develop (HEAD) - Contains ALL 21 PRs
+```
+
+**Configuration**:
+```yaml
+strategy: "include"
+base_branch: "develop"
+prs: [19, 20, 21]
+```
+
+**Process**:
+```
+Step 1: Create release/2.2.0 from Tag 2.1.1
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0                        │
+   │ Starting point: Tag 2.1.1            │
+   │ Content: Clean baseline (NO PRs)     │
+   └──────────────────────────────────────┘
+
+Step 2: Cherry-pick PR #19 from develop
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0                        │
+   │ Tag 2.1.1 + PR #19                   │
+   └──────────────────────────────────────┘
+
+Step 3: Cherry-pick PR #20 from develop
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0                        │
+   │ Tag 2.1.1 + PR #19 + PR #20          │
+   │ ⚠️  Conflict! (both change same lines)│
+   │ 🤖 LLM resolves conflict             │
+   └──────────────────────────────────────┘
+
+Step 4: Cherry-pick PR #21 from develop
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0 ✅ FINAL               │
+   │ Tag 2.1.1 + PR #19 + PR #20 + PR #21 │
+   │ ⚠️  Conflict! (same lines again)     │
+   │ 🤖 LLM resolves conflict             │
+   └──────────────────────────────────────┘
+
+Result:
+   Release 2.2.0 = Old baseline + ONLY 3 PRs
+   Missing: PRs #1-18, #39 (intentionally excluded)
+```
+
+**Use INCLUDE when**:
+- 🔥 **Hotfix release** - Only critical fixes needed
+- 🎯 **Targeted release** - Specific features/fixes
+- 🔒 **Tight control** - Minimal surface area for issues
+- ⚡ **Quick release** - Few well-tested PRs
+
+---
+
+### EXCLUDE Strategy (Revert) - Detailed Flow
+
+**Starting Point**: `base_branch` (develop) with all PRs
+
+```
+Git Timeline:
+════════════════════════════════════════════════════════════
+
+Tag 2.1.1
+   │
+   ├─ PR #1 ✅ merged → develop  ← We DON'T want
+   ├─ PR #2 ✅ merged → develop  ← We DON'T want
+   ├─ PR #3 ✅ merged → develop
+   ├─ PR #4 ✅ merged → develop
+   ├─ ...
+   ├─ PR #19 ✅ merged → develop
+   ├─ PR #20 ✅ merged → develop
+   ├─ PR #21 ✅ merged → develop
+   │
+   ▼
+Develop (HEAD) - Contains ALL 21 PRs
+```
+
+**Configuration**:
 ```yaml
 strategy: "exclude"
 base_branch: "develop"
-prs: [205, 310]  # Skip these PRs
+prs: [1, 2]
 ```
 
-**Use when**: Most changes are release-ready.
+**Process**:
+```
+Step 1: Create release/2.2.0 from develop
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0                        │
+   │ Starting point: develop              │
+   │ Content: ALL 21 PRs                  │
+   └──────────────────────────────────────┘
+
+Step 2: Revert PR #2 (newest first)
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0                        │
+   │ develop - PR #2                      │
+   │ (Removes ONLY PR #2's changes)       │
+   └──────────────────────────────────────┘
+
+Step 3: Revert PR #1
+   ┌──────────────────────────────────────┐
+   │ release/2.2.0 ✅ FINAL               │
+   │ develop - PR #2 - PR #1              │
+   │ (Removes PR #1's changes)            │
+   └──────────────────────────────────────┘
+
+Result:
+   Release 2.2.0 = develop - 2 PRs
+   Contains: PRs #3-21, #39 (19 PRs total)
+   Missing: PRs #1, #2 (intentionally excluded)
+```
+
+**Use EXCLUDE when**:
+- 📦 **Regular release** - Most changes are ready
+- 🚫 **Few problematic PRs** - Only 1-2 PRs causing issues
+- ✅ **Comprehensive release** - Want most of develop
+- 🔄 **Bi-weekly cadence** - Standard release cycle
+
+---
+
+### Key Differences
+
+| Aspect | INCLUDE | EXCLUDE |
+|--------|---------|---------|
+| **Starting Point** | Last tag (empty) | base_branch (full) |
+| **Git Operation** | `cherry-pick` | `revert` |
+| **PR List Meaning** | What to ADD | What to REMOVE |
+| **Result Size** | Usually smaller | Usually larger |
+| **Best For** | Hotfixes, targeted releases | Regular releases |
+| **Risk Level** | Lower (fewer PRs) | Higher (more PRs) |
+| **Testing Scope** | Minimal | Comprehensive |
 
 ---
 
@@ -528,14 +689,42 @@ pip install pyyaml
 export OPENAI_API_KEY="sk-..."
 ```
 
+**Empty Commit During Cherry-Pick**
+
+When using INCLUDE strategy with a release branch from `develop`, you may see:
+```
+⚠️  Operation failed: The previous cherry-pick is now empty
+```
+
+**Why this happens**: The PR changes are already present in the target branch (inherited from develop).
+
+**Solution**: The agent auto-detects this and treats it as SUCCESS:
+```
+ℹ️  Changes already present in target branch (empty commit)
+✅ Skipping cherry-pick (PR changes already applied)
+```
+
+This is **NOT a failure** - the changes are already there!
+
+**Manual handling** (if needed):
+```bash
+# Skip the empty commit
+git cherry-pick --skip
+
+# Or commit anyway
+git commit --allow-empty
+```
+
 ### Debug
 
 ```bash
 # View conflict analysis
 cat /tmp/rdkb-release-conflicts/conflict_analysis.json | jq '.pr_semantics'
 
-# View LLM decisions
-cat /tmp/rdkb-release-conflicts/llm_decisions.json | jq '.'
+# View LLM decisions cat /tmp/rdkb-release-conflicts/llm_decisions.json | jq '.'
+
+# Check logs for detailed execution trace
+tail -f /tmp/rdkb-release-conflicts/logs/*.log
 ```
 
 ---
@@ -593,24 +782,85 @@ python3 release-agent/scripts/release_orchestrator.py \
 
 ## 📚 Architecture
 
+### Implementation Philosophy
+
+This release agent uses a **Hybrid Intelligence Approach** combining:
+- ✅ Rule-based semantic analysis (fast, deterministic)
+- ✅ LLM strategic intelligence (contextual, intelligent)
+- ✅ Post-resolution C syntax validation
+- ✅ Safety-first conflict resolution
+
+### Three-Tier Conflict Resolution
+
+```
+┌──────────────────────────────────────────┐
+│ HIGH Confidence (Rules)                  │
+│  → AUTO-RESOLVE (instant)                │
+│  → No LLM call needed                    │
+│  Examples: Whitespace, comments, braces  │
+├──────────────────────────────────────────┤
+│ MEDIUM Confidence (Hybrid)               │
+│  → LLM with safety guidance              │
+│  → Prefer safer side when detected       │
+│  Examples: NULL checks, error handling   │
+├──────────────────────────────────────────┤
+│ LOW Confidence (Full LLM)                │
+│  → Complete context to LLM               │
+│  → Strategic decision making             │
+│  Examples: Functional changes, complex   │
+└──────────────────────────────────────────┘
+```
+
+### Change Classification
+
+Sophisticated conflict classification enables intelligent resolution:
+
+| Conflict Type | Confidence | Resolution Strategy |
+|---------------|-----------|-------------------|
+| **WHITESPACE_ONLY** | HIGH | Keep OURS (formatting) |
+| **INCLUDE_REORDER** | HIGH | Merge and deduplicate |
+| **COMMENT_ONLY** | HIGH | Merge both comments |
+| **BRACE_STYLE** | HIGH | Keep OURS (style consistency) |
+| **NULL_CHECK_ADDED** | MEDIUM | Prefer safety improvements |
+| **ERROR_HANDLING** | MEDIUM | Prefer error handling side |
+| **FUNCTIONAL** | LOW | Full LLM analysis |
+| **MIXED** | LOW | Full LLM analysis |
+
+**Performance**: HIGH confidence conflicts resolve instantly without LLM calls.
+
+### Safety Improvement Detection
+
+Automatically detects and preserves safety improvements:
+- NULL pointer checks (`if (ptr == NULL)`)
+- Resource cleanup (`free()`, `close()`)
+- Error handling (`return ANSC_STATUS_FAILURE`)
+- Bounds checking
+- RDK-B specific patterns (`CcspTraceError`)
+
+### Post-Resolution Validation
+
+After LLM conflict resolution, C syntax validation ensures correctness:
+```bash
+gcc -fsyntax-only -x c <file>
+```
+
+This catches syntax errors introduced by LLM and prevents broken code from being committed.
+
 ### Active Modules (2,280 lines)
 
 | Module | Purpose | Lines |
 |--------|---------|-------|
-| `release_orchestrator.py` | Main orchestrator | 358 |
+| `release_orchestrator.py` | Main orchestrator | 570 |
+| `pr_discovery.py` | Smart PR discovery & validation | 350 |
 | `pr_conflict_analyzer.py` | Phase 1 detection | 368 |
-| `llm_pr_decision.py` | Phase 2 LLM | 413 |
-| `code_pattern_analyzer.py` | Semantic analysis | 368 |
-| `llm_providers.py` | API clients | 366 |
-| `pr_level_resolver.py` | Conflict handling | 346 |
-| `utils.py` | Utilities | 61 |
-
-### Deprecated Modules
-
-See [scripts/deprecated/README.md](scripts/deprecated/README.md) for:
-- Old code-level merging approach
-- Why it was replaced
-- Migration guide
+| `llm_pr_decision.py` | Phase 2 LLM decisions | 413 |
+| `code_pattern_analyzer.py` | Semantic C analysis | 368 |
+| `pr_level_resolver.py` | PR-level conflict resolution | 346 |
+| `llm_conflict_resolver.py` | Hybrid conflict resolver | 285 |
+| `llm_providers.py` | Multi-provider LLM API | 366 |
+| `report_generator.py` | Comprehensive reports | 240 |
+| `logger.py` | Structured logging | 120 |
+| `utils.py` | Shared utilities | 61 |
 
 ---
 
