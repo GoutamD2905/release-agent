@@ -43,16 +43,21 @@ class ResolutionAction:
 class PRLevelResolver:
     """Resolver that makes PR-level decisions (no code merging)."""
     
-    def __init__(self, mode: str, decision_maker=None, config: Dict = None):
+    def __init__(self, mode: str, decision_maker=None, config: Dict = None, pr_commit_map: Dict = None, pr_metadata: Dict = None):
         """
         Args:
             mode: "cherry-pick" or "revert"
             decision_maker: LLMPRDecisionMaker instance (optional)
             config: Release config dict (for LLM conflict resolver)
+            pr_commit_map: Dict mapping PR number to commit SHA
+            pr_metadata: Dict mapping PR number to metadata
         """
         self.mode = mode
         self.decision_maker = decision_maker
         self.config = config or {}
+        self.pr_commit_map = pr_commit_map or {}
+        self.pr_metadata = pr_metadata or {}
+        self.last_had_conflicts = False
         self.resolution_log = Path("/tmp/rdkb-release-conflicts/pr_resolutions.json")
         self.resolution_log.parent.mkdir(parents=True, exist_ok=True)
         
@@ -220,6 +225,40 @@ class PRLevelResolver:
             capture_output=True, text=True
         )
         return result.returncode == 0
+    
+    def execute_pr(self, pr_number: int, action) -> bool:
+        """Execute cherry-pick or revert for a PR.
+        
+        Args:
+            pr_number: PR number to process
+            action: ResolutionAction (INCLUDE or EXCLUDE) or action string
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Reset conflict flag
+        self.last_had_conflicts = False
+        
+        # Get commit SHA
+        commit_sha = self.pr_commit_map.get(pr_number)
+        if not commit_sha:
+            print(f"  ❌ No commit SHA found for PR #{pr_number}")
+            return False
+        
+        # Get metadata
+        pr_meta = self.pr_metadata.get(pr_number, {})
+        
+        # Create ResolutionAction if not already one
+        if not isinstance(action, ResolutionAction):
+            action = ResolutionAction(
+                pr_number=pr_number,
+                action=str(action),
+                reason="Configured action",
+                depends_on=[]
+            )
+        
+        # Apply the action
+        return self.apply_action(action, commit_sha, pr_number, pr_meta)
     
     def apply_action(self, action: ResolutionAction, commit_sha: str, pr_number: int = None, pr_metadata: Dict = None) -> bool:
         """
