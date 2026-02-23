@@ -27,7 +27,7 @@ base_branch: "develop"
 #    - Agent will warn if excluded PRs have dependents
 # ───────────────────────────────────────────────────────────────────
 
-strategy: "include"
+strategy: "exclude" # Options: "include" or "exclude"
 
 # ─── PR List ───────────────────────────────────────────────────────
 # For INCLUDE strategy: PRs to include in release
@@ -41,7 +41,7 @@ strategy: "include"
 #   ✅ Recommend additional PRs to include/exclude
 # ───────────────────────────────────────────────────────────────────
 prs:
-  - 41
+  - 40
 
 # ─── LLM Configuration ─────────────────────────────────────────────
 # LLM analyzes each PR for:
@@ -50,12 +50,19 @@ prs:
 #   • Risk/benefit assessment
 #   • Strategic INCLUDE/EXCLUDE decisions
 # ───────────────────────────────────────────────────────────────────
+# llm:
+#   enabled: true
+#   provider: "ollama"
+#   model: "deepseek-coder:6.7b"
+#   api_key_env: "OLLAMA_API_KEY"
+#   endpoint: "http://localhost:11434/v1/chat/completions"
+
 llm:
   enabled: true
-  provider: "ollama"
-  model: "deepseek-coder:6.7b"
-  api_key_env: "OLLAMA_API_KEY"
-  endpoint: "http://localhost:11434/v1/chat/completions"
+  provider: "azureopenai"
+  model: "claude-sonnet-4-6"
+  api_key_env: "AZURE_API_KEY"
+  endpoint: "https://rdkb-dev-resource.openai.azure.com/anthropic/v1/messages"
 
   # model: "qwen2.5-coder:14b"
   # api_key_env: "OLLAMA_API_KEY"

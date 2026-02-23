@@ -109,40 +109,47 @@ class ReportGenerator:
     
     def _write_header(self, f, data: ReleaseReport) -> None:
         """Write report header."""
-        f.write(f"# Release Report: {data.component_name} v{data.version}\n\n")
-        f.write(f"**Generated**: {data.timestamp}\n\n")
-        f.write(f"**Strategy**: {data.strategy.upper()}\n\n")
-        f.write(f"**Mode**: {'DRY RUN (Simulation)' if data.dry_run else 'LIVE EXECUTION'}\n\n")
-        f.write("---\n\n")
+        f.write(f"# 🚀 Release Report — {data.component_name} v{data.version}\n\n")
+        
+        # Summary table
+        f.write("| Field | Value |\n")
+        f.write("|-------|-------|\n")
+        f.write(f"| **Release Version** | `{data.version}` |\n")
+        f.write(f"| **Component** | `{data.component_name}` |\n")
+        f.write(f"| **Strategy** | `{data.strategy.upper()}` |\n")
+        f.write(f"| **Base Branch** | `{data.base_branch}` |\n")
+        f.write(f"| **Release Branch** | `{data.release_branch}` |\n")
+        f.write(f"| **Mode** | {'🔍 DRY RUN (Simulation)' if data.dry_run else '✅ LIVE EXECUTION'} |\n")
+        f.write(f"| **Execution Time** | {data.execution_time:.1f}s |\n")
+        f.write(f"| **Report Generated** | {data.timestamp} |\n")
+        f.write("\n---\n\n")
     
     def _write_executive_summary(self, f, data: ReleaseReport) -> None:
         """Write executive summary."""
         f.write("## 📊 Executive Summary\n\n")
         
-        f.write("### Configuration\n\n")
-        f.write(f"- **Component**: {data.component_name}\n")
-        f.write(f"- **Target Version**: {data.version}\n")
-        f.write(f"- **Base Branch**: {data.base_branch}\n")
-        f.write(f"- **Release Branch**: {data.release_branch}\n")
-        f.write(f"- **Strategy**: {data.strategy.upper()}\n")
-        f.write(f"- **Execution Time**: {data.execution_time:.1f}s\n\n")
-        
-        f.write("### Results at a Glance\n\n")
-        f.write(f"- **PRs Discovered**: {data.total_prs_discovered}\n")
-        f.write(f"- **PRs Configured**: {len(data.prs_configured)}\n")
-        f.write(f"- **Conflicts Detected**: {data.conflicts_detected} ({data.conflicts_critical} critical)\n")
-        f.write(f"- **LLM Decisions**: {len(data.llm_decisions)}\n")
-        f.write(f"- **To Include**: {len(data.prs_to_include)}\n")
-        f.write(f"- **To Exclude**: {len(data.prs_to_exclude)}\n")
-        f.write(f"- **Manual Review**: {len(data.prs_manual_review)}\n\n")
+        # Results table
+        f.write("| Metric | Count | Status |\n")
+        f.write("|--------|-------|--------|\n")
+        f.write(f"| **PRs Discovered** | {data.total_prs_discovered} | 🔍 From git history |\n")
+        f.write(f"| **PRs Configured** | {len(data.prs_configured)} | 📋 In config file |\n")
+        f.write(f"| **Conflicts Detected** | {data.conflicts_detected} | ⚠️ {data.conflicts_critical} critical |\n")
         
         if not data.dry_run:
-            f.write("### Execution Results\n\n")
-            f.write(f"- ✅ **Successful**: {len(data.successful_prs)} PRs\n")
-            f.write(f"- ❌ **Failed**: {len(data.failed_prs)} PRs\n")
-            f.write(f"- ⏭️  **Skipped**: {len(data.skipped_prs)} PRs\n\n")
+            success_icon = "✅" if len(data.failed_prs) == 0 else "⚠️"
+            f.write(f"| **PRs Applied** | {len(data.successful_prs)} | {success_icon} Successfully applied |\n")
+            if len(data.failed_prs) > 0:
+                f.write(f"| **PRs Failed** | {len(data.failed_prs)} | ❌ Requires manual fix |\n")
+            if len(data.skipped_prs) > 0:
+                f.write(f"| **PRs Skipped** | {len(data.skipped_prs)} | ⏭️ Excluded by LLM |\n")
         
-        f.write("---\n\n")
+        if len(data.llm_decisions) > 0:
+            f.write(f"| **LLM Decisions** | {len(data.llm_decisions)} | 🤖 AI-powered analysis |\n")
+            f.write(f"| **LLM Include** | {len(data.prs_to_include)} | ✅ Recommended |\n")
+            f.write(f"| **LLM Exclude** | {len(data.prs_to_exclude)} | ⏭️ Not recommended |\n")
+            f.write(f"| **Manual Review** | {len(data.prs_manual_review)} | 🔍 Needs human review |\n")
+        
+        f.write("\n---\n\n")
     
     def _write_pr_discovery(self, f, data: ReleaseReport) -> None:
         """Write PR discovery section."""
@@ -184,10 +191,14 @@ class ReportGenerator:
         
         f.write(f"**Total Conflicts Detected**: {data.conflicts_detected}\n\n")
         
+        # Severity breakdown table
         f.write("### Severity Breakdown\n\n")
-        f.write(f"- 🔴 **Critical**: {data.conflicts_critical}\n")
-        f.write(f"- 🟡 **Medium**: {data.conflicts_medium}\n")
-        f.write(f"- 🟢 **Low**: {data.conflicts_low}\n\n")
+        f.write("| Severity | Count | Description |\n")
+        f.write("|:--------:|:-----:|-------------|\n")
+        f.write(f"| 🔴 **CRITICAL** | {data.conflicts_critical} | PRs modifying critical system files or APIs |\n")
+        f.write(f"| 🟡 **MEDIUM** | {data.conflicts_medium} | PRs with overlapping file changes |\n")
+        f.write(f"| 🟢 **LOW** | {data.conflicts_low} | Minor timing or dependency issues |\n")
+        f.write("\n")
         
         # Load detailed conflict data
         conflict_file = self.data_dir / "conflict_analysis.json"
@@ -195,16 +206,44 @@ class ReportGenerator:
             with open(conflict_file) as cf:
                 conflict_data = json.load(cf)
             
+            # Critical conflicts table
             critical_conflicts = conflict_data.get("conflicts", {}).get("by_severity", {}).get("critical", [])
             if critical_conflicts:
-                f.write("### Critical Conflicts\n\n")
+                f.write("### 🔴 Critical Conflicts (Requires Immediate Attention)\n\n")
+                f.write("| PR # | Issue | Affected Files |\n")
+                f.write("|------|-------|----------------|\n")
                 for conflict in critical_conflicts[:10]:
-                    f.write(f"- **PR #{conflict['pr_number']}**: {conflict['reason']}\n")
-                    if conflict.get('shared_files'):
-                        f.write(f"  - Files: {', '.join(conflict['shared_files'][:3])}\n")
+                    pr_num = conflict['pr_number']
+                    reason = conflict['reason'].replace('|', '\\|')[:60]
+                    files = conflict.get('shared_files', [])
+                    files_str = ', '.join([f"`{f}`" for f in files[:2]])
+                    if len(files) > 2:
+                        files_str += f" +{len(files)-2} more"
+                    f.write(f"| #{pr_num} | {reason} | {files_str} |\n")
                 if len(critical_conflicts) > 10:
-                    f.write(f"\n*...and {len(critical_conflicts) - 10} more critical conflicts*\n")
+                    f.write(f"\n> *...and {len(critical_conflicts) - 10} more critical conflicts*\n")
                 f.write("\n")
+            
+            # Medium conflicts summary
+            medium_conflicts = conflict_data.get("conflicts", {}).get("by_severity", {}).get("medium", [])
+            if medium_conflicts:
+                f.write("### 🟡 Medium Conflicts (Review Recommended)\n\n")
+                f.write("| PR # | Issue | Affected Files |\n")
+                f.write("|------|-------|----------------|\n")
+                for conflict in medium_conflicts[:5]:
+                    pr_num = conflict['pr_number']
+                    reason = conflict['reason'].replace('|', '\\|')[:60]
+                    files = conflict.get('shared_files', [])
+                    files_str = ', '.join([f"`{f}`" for f in files[:2]])
+                    if len(files) > 2:
+                        files_str += f" +{len(files)-2} more"
+                    f.write(f"| #{pr_num} | {reason} | {files_str} |\n")
+                if len(medium_conflicts) > 5:
+                    f.write(f"\n> *...and {len(medium_conflicts) - 5} more medium conflicts*\n")
+                f.write("\n")
+        
+        if data.conflicts_detected == 0:
+            f.write("> ✅ **No conflicts detected**. All PRs can be applied cleanly.\n\n")
         
         f.write("---\n\n")
     
@@ -213,7 +252,7 @@ class ReportGenerator:
         f.write("## 🤖 LLM Strategic Decisions\n\n")
         
         if not data.llm_decisions:
-            f.write("*No LLM decisions made*\n\n")
+            f.write("> *LLM is only used for conflict resolution. No strategic decisions were made.*\n\n")
             f.write("---\n\n")
             return
         
@@ -224,30 +263,57 @@ class ReportGenerator:
         exclude = [pr for pr, d in data.llm_decisions.items() if d['decision'] == 'EXCLUDE']
         manual = [pr for pr, d in data.llm_decisions.items() if d['decision'] == 'MANUAL_REVIEW']
         
-        f.write(f"- ✅ **Include**: {len(include)}\n")
-        f.write(f"- ⏭️ **Exclude**: {len(exclude)}\n")
-        f.write(f"- 🔍 **Manual Review**: {len(manual)}\n\n")
+        # Summary table
+        f.write("### Decision Summary\n\n")
+        f.write("| Decision | Count | Confidence | Action |\n")
+        f.write("|----------|:-----:|:----------:|--------|\n")
+        f.write(f"| ✅ **INCLUDE** | {len(include)} | AI-Recommended | Auto-applied to release |\n")
+        f.write(f"| ⏭️ **EXCLUDE** | {len(exclude)} | AI-Recommended | Skipped from release |\n")
+        f.write(f"| 🔍 **MANUAL_REVIEW** | {len(manual)} | Needs Human | Component owner must review |\n")
+        f.write("\n")
         
-        # Detailed decisions
-        f.write("### Detailed Decisions\n\n")
+        # Detailed decisions table
+        if len(data.llm_decisions) > 0:
+            f.write("### Detailed Decisions\n\n")
+            f.write("| PR # | Decision | Confidence | Rationale |\n")
+            f.write("|------|----------|:----------:|----------|\n")
+            
+            for pr_num, decision in sorted(data.llm_decisions.items(), key=lambda x: int(x[0])):
+                emoji = "✅" if decision['decision'] == "INCLUDE" else "⏭️" if decision['decision'] == "EXCLUDE" else "🔍"
+                conf_emoji = "🟢" if decision['confidence'] == "HIGH" else "🟡" if decision['confidence'] == "MEDIUM" else "🔴"
+                rationale = decision['rationale'].replace('|', '\\|')[:80]
+                f.write(f"| #{pr_num} | {emoji} {decision['decision']} | {conf_emoji} {decision['confidence']} | {rationale} |\n")
+            f.write("\n")
         
-        for pr_num, decision in sorted(data.llm_decisions.items()):
-            emoji = "✅" if decision['decision'] == "INCLUDE" else "⏭️" if decision['decision'] == "EXCLUDE" else "🔍"
-            f.write(f"#### {emoji} PR #{pr_num}: {decision['decision']} ({decision['confidence']})\n\n")
-            f.write(f"**Rationale**: {decision['rationale']}\n\n")
+        # High-value decisions expansion
+        if include or manual:
+            f.write("<details>\n")
+            f.write("<summary>📋 Detailed Analysis (expand for full rationale)</summary>\n\n")
             
-            if decision.get('requires_prs'):
-                f.write(f"**Requires PRs**: {decision['requires_prs']}\n\n")
+            for pr_num, decision in sorted(data.llm_decisions.items(), key=lambda x: int(x[0])):
+                if decision['decision'] in ['INCLUDE', 'MANUAL_REVIEW']:
+                    emoji = "✅" if decision['decision'] == "INCLUDE" else "🔍"
+                    f.write(f"#### {emoji} PR #{pr_num}: {decision['decision']} ({decision['confidence']})\n\n")
+                    f.write(f"**Rationale**: {decision['rationale']}\n\n")
+                    
+                    if decision.get('requires_prs'):
+                        f.write(f"**Requires PRs**: {decision['requires_prs']}\n\n")
+                    
+                    if decision.get('benefits'):
+                        f.write("**Benefits**:\n")
+                        for benefit in decision['benefits']:
+                            f.write(f"- {benefit}\n")
+                        f.write("\n")
+                    
+                    if decision.get('risks'):
+                        f.write("**Risks**:\n")
+                        for risk in decision['risks']:
+                            f.write(f"- {risk}\n")
+                        f.write("\n")
             
-            if decision.get('risks'):
-                f.write("**Risks**:\n")
-                for risk in decision['risks']:
-                    f.write(f"- {risk}\n")
-                f.write("\n")
-            
-            if decision.get('benefits'):
-                f.write("**Benefits**:\n")
-                for benefit in decision['benefits']:
+            f.write("</details>\n\n")
+        
+        f.write("---\n\n")
                     f.write(f"- {benefit}\n")
                 f.write("\n")
         
@@ -258,20 +324,23 @@ class ReportGenerator:
         f.write("## 🔗 Dependency Validation\n\n")
         
         if not data.dependency_warnings and not data.missing_dependencies:
-            f.write("✅ **No dependency issues detected**\n\n")
+            f.write("> ✅ **No dependency issues detected**. All PRs are properly ordered.\n\n")
             f.write("---\n\n")
             return
+        
+        if data.missing_dependencies:
+            f.write("### Missing Dependencies\n\n")
+            f.write("| Included PR | Depends On PR(s) | Action Required |\n")
+            f.write("|-------------|------------------|------------------|\n")
+            for pr, deps in data.missing_dependencies.items():
+                deps_str = ', '.join([f"#{d}" for d in deps])
+                f.write(f"| PR #{pr} | {deps_str} | ⚠️ Add dependencies to config |\n")
+            f.write("\n")
         
         if data.dependency_warnings:
             f.write("### ⚠️ Warnings\n\n")
             for warning in data.dependency_warnings:
                 f.write(f"- {warning}\n")
-            f.write("\n")
-        
-        if data.missing_dependencies:
-            f.write("### Missing Dependencies\n\n")
-            for pr, deps in data.missing_dependencies.items():
-                f.write(f"- **PR #{pr}** requires: {deps}\n")
             f.write("\n")
         
         if data.dependency_recommendations:
@@ -292,22 +361,50 @@ class ReportGenerator:
         
         f.write("## 🚀 Execution Results\n\n")
         
+        # Load PR metadata from conflict analysis file
+        pr_metadata = {}
+        conflict_file = self.data_dir / "conflict_analysis.json"
+        if conflict_file.exists():
+            with open(conflict_file) as cf:
+                conflict_data = json.load(cf)
+                pr_metadata = conflict_data.get("pr_metadata", {})
+        
         if data.successful_prs:
-            f.write(f"### ✅ Successfully Applied ({len(data.successful_prs)})\n\n")
-            for pr in data.successful_prs:
-                f.write(f"- PR #{pr}\n")
+            f.write(f"### ✅ Successfully Applied ({len(data.successful_prs)} PRs)\n\n")
+            f.write("| PR # | Title | Author | Status |\n")
+            f.write("|------|-------|--------|--------|\n")
+            for pr_num in data.successful_prs:
+                pr_info = pr_metadata.get(str(pr_num), {})
+                title = pr_info.get('title', f'PR #{pr_num}').replace('|', '\\|')[:60]
+                author = pr_info.get('author', 'unknown')
+                f.write(f"| #{pr_num} | {title} | @{author} | ✅ Applied |\n")
             f.write("\n")
         
         if data.failed_prs:
-            f.write(f"### ❌ Failed / Needs Manual Review ({len(data.failed_prs)})\n\n")
-            for pr in data.failed_prs:
-                f.write(f"- PR #{pr}\n")
+            f.write(f"### ❌ Failed / Needs Manual Review ({len(data.failed_prs)} PRs)\n\n")
+            f.write("| PR # | Title | Author | Action Required |\n")
+            f.write("|------|-------|--------|------------------|\n")
+            for pr_num in data.failed_prs:
+                pr_info = pr_metadata.get(str(pr_num), {})
+                title = pr_info.get('title', f'PR #{pr_num}').replace('|', '\\|')[:60]
+                author = pr_info.get('author', 'unknown')
+                f.write(f"| #{pr_num} | {title} | @{author} | 🔧 Manual resolution required |\n")
             f.write("\n")
         
         if data.skipped_prs:
-            f.write(f"### ⏭️ Skipped ({len(data.skipped_prs)})\n\n")
-            for pr in data.skipped_prs:
-                f.write(f"- PR #{pr}\n")
+            f.write(f"### ⏭️ Skipped ({len(data.skipped_prs)} PRs)\n\n")
+            f.write("| PR # | Title | Author | Reason |\n")
+            f.write("|------|-------|--------|--------|\n")
+            for pr_num in data.skipped_prs:
+                pr_info = pr_metadata.get(str(pr_num), {})
+                title = pr_info.get('title', f'PR #{pr_num}').replace('|', '\\|')[:60]
+                author = pr_info.get('author', 'unknown')
+                # Find LLM decision reason
+                reason = "Excluded by strategy"
+                if data.llm_decisions and str(pr_num) in data.llm_decisions:
+                    decision = data.llm_decisions[str(pr_num)]
+                    reason = decision.get('rationale', 'Excluded')[:50]
+                f.write(f"| #{pr_num} | {title} | @{author} | {reason} |\n")
             f.write("\n")
         
         f.write("---\n\n")
@@ -356,36 +453,69 @@ class ReportGenerator:
     
     def _write_next_steps(self, f, data: ReleaseReport) -> None:
         """Write next steps section."""
-        f.write("## 📋 Next Steps\n\n")
+        f.write("## 📋 Next Steps for Component Owner\n\n")
         
         if data.dry_run:
             f.write("### After Reviewing This Report:\n\n")
-            f.write("1. Review all LLM decisions and dependency warnings\n")
-            f.write("2. Update configuration if needed (add/remove PRs)\n")
-            f.write("3. Run again without `--dry-run` to execute the release\n\n")
+            f.write("1. **Review** all LLM decisions and dependency warnings\n")
+            f.write("2. **Update** configuration if needed (add/remove PRs)\n")
+            f.write("3. **Run** again without `--dry-run` to execute the release\n\n")
+            f.write("```bash\n")
+            f.write("# Execute the release\n")
+            f.write(f"python3 release_orchestrator.py --repo YOUR_REPO --config .release-config.yml\n")
+            f.write("```\n\n")
         else:
             if data.failed_prs:
-                f.write("### Manual Intervention Required:\n\n")
-                f.write("1. Review failed PRs and resolve conflicts manually\n")
-                f.write("2. Cherry-pick/revert PRs as needed\n")
-                f.write("3. Test the release branch thoroughly\n")
-                f.write("4. Create pull request to merge release branch\n\n")
+                f.write("### ⚠️ Manual Intervention Required\n\n")
+                f.write("1. **Resolve** failed PRs and conflicts manually\n")
+                f.write("2. **Cherry-pick/revert** PRs as needed\n")
+                f.write("3. **Test** the release branch thoroughly\n")
+                f.write("4. **Create** pull request to merge release branch\n\n")
+                f.write("```bash\n")
+                f.write("# Checkout release branch\n")
+                f.write(f"git checkout {data.release_branch}\n\n")
+                f.write("# Manually resolve failed PRs\n")
+                f.write("# Then continue with testing and merge\n")
+                f.write("```\n\n")
             else:
-                f.write("### Release Branch Ready:\n\n")
-                f.write(f"1. Test the release branch: `{data.release_branch}`\n")
-                f.write("2. Create pull request for review\n")
-                f.write("3. Merge to production after approval\n\n")
+                f.write("### ✅ Release Branch Ready\n\n")
+                f.write(f"1. **Review** the PR list above and verify all expected changes are included\n")
+                f.write(f"2. **Test** the `{data.release_branch}` branch on your target platform\n")
+                f.write(f"3. **Merge** `{data.release_branch}` → `main` and tag as `{data.version}`:\n\n")
+                f.write("```bash\n")
+                f.write("# Merge release to main\n")
+                f.write(f"git checkout main && git merge --no-ff {data.release_branch}\n\n")
+                f.write(f"# Tag the release\n")
+                f.write(f"git tag -a {data.version} -m 'Release {data.version}'\n\n")
+                f.write(f"# Push to remote\n")
+                f.write(f"git push origin main --tags\n")
+                f.write("```\n\n")
         
         f.write("---\n\n")
     
     def _write_footer(self, f, data: ReleaseReport) -> None:
         """Write report footer."""
         f.write("## 📎 Appendix\n\n")
+        
         f.write("### Generated Files\n\n")
-        f.write("- **Conflict Analysis**: `/tmp/rdkb-release-conflicts/conflict_analysis.json`\n")
-        f.write("- **LLM Decisions**: `/tmp/rdkb-release-conflicts/llm_decisions.json`\n")
-        f.write("- **Dependency Validation**: `/tmp/rdkb-release-conflicts/dependency_validation.json`\n")
-        f.write("- **Logs**: `/tmp/rdkb-release-conflicts/logs/`\n\n")
+        f.write("| File | Description | Path |\n")
+        f.write("|------|-------------|------|\n")
+        f.write("| Conflict Analysis | Detailed conflict detection data | `/tmp/rdkb-release-conflicts/conflict_analysis.json` |\n")
+        if data.llm_decisions:
+            f.write("| LLM Decisions | AI-powered decision rationale | `/tmp/rdkb-release-conflicts/llm_decisions.json` |\n")
+        f.write("| Dependency Validation | PR dependency analysis | `/tmp/rdkb-release-conflicts/dependency_validation.json` |\n")
+        f.write("| Logs | Complete execution logs | `/tmp/rdkb-release-conflicts/logs/` |\n")
+        f.write("\n")
+        
+        f.write("### About This Release Agent\n\n")
+        f.write("This release was orchestrated by an intelligent automation system that:\n")
+        f.write("- 🔍 **Discovers** PRs automatically from git history\n")
+        f.write("- ⚠️ **Detects** conflicts using rule-based pattern matching\n")
+        if data.llm_decisions:
+              f.write("- 🤖 **Analyzes** PRs using LLM-powered semantic understanding\n")
+        f.write("- 🔄 **Resolves** conflicts using hybrid LLM + rule-based approach\n")
+        f.write("- ✅ **Validates** dependencies and suggests improvements\n")
+        f.write("- 📊 **Reports** comprehensive release status\n\n")
         
         f.write("---\n\n")
-        f.write(f"*Report generated by RDK-B Release Agent on {data.timestamp}*\n")
+        f.write(f"*Report generated by Release Agent on {data.timestamp}*\n")

@@ -2,26 +2,26 @@
 """
 release_orchestrator.py
 =======================
-Main release orchestrator using the two-phase hybrid intelligence approach:
+Main release orchestrator for RDK-B components.
 
-PHASE 1: Rule-Based Intelligence
-  - Detect PR list based on strategy
-  - Identify file overlaps, timing conflicts, critical files
-  - Analyze code patterns (NULL checks, error handling, safety improvements)
-  - NO resolution — just detection and flagging
+APPROACH: Rule-based workflow with LLM only for conflict resolution
 
-PHASE 2: LLM-Based Intelligence  
-  - Deep semantic analysis of flagged PRs
-  - Make strategic decisions: Include PR or Exclude PR
-  - Consider dependencies, risks, benefits
-  - Use code pattern analysis for better context
-  - NO code-level merging — binary PR decisions only
+WORKFLOW:
+  1. PR Discovery (rule-based) - Find all PRs since last tag
+  2. Operation Planning (rule-based) - Based on strategy & config
+  3. Create Release Branch
+  4. Execute Operations (cherry-pick/revert with LLM conflict resolution)
+  5. Generate Comprehensive Report
+  6. Push & Create Draft PR
 
-RESOLUTION STRATEGY:
-  - Cherry-pick/revert entire PRs (all or nothing)
-  - If conflict occurs → LLM decides: include, exclude, or manual review
-  - No partial merging of code hunks
-  - Dependencies automatically resolved by including required PRs
+STRATEGIES:
+  - EXCLUDE: Start from develop, revert excluded PRs
+  - INCLUDE: Start from develop, cherry-pick included PRs
+
+LLM USAGE:
+  - ONLY for resolving merge conflicts during cherry-pick/revert
+  - Uses hybrid resolver: rule-based for simple conflicts, LLM for complex ones
+  - NO LLM for PR selection decisions (purely configuration-driven)
 
 Usage:
   python3 release_orchestrator.py \
@@ -48,8 +48,6 @@ except ImportError:
 SCRIPTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from pr_conflict_analyzer import PRConflictAnalyzer
-from llm_pr_decision import LLMPRDecisionMaker
 from pr_level_resolver import PRLevelResolver, check_for_conflicts, ResolutionAction
 from pr_discovery import (
     discover_prs_since_tag,
@@ -139,7 +137,7 @@ print(f"\n  📋 Log file: {logger.get_log_file()}")
 
 
 # ── Smart PR Discovery ────────────────────────────────────────────────────────
-section(0, "Smart PR Discovery & Validation")
+section(1, "Smart PR Discovery from Git History")
 
 # Auto-discover PRs from git history
 logger.info("Starting PR auto-discovery from git history")
@@ -150,280 +148,177 @@ if discovery_result:
     
     # Store discovered PRs for later use
     all_discovered_prs = discovery_result.all_prs
+    last_tag = discovery_result.last_tag
 else:
     print(f"  {warn('Could not auto-discover PRs - proceeding with configured list')}")
     logger.warning("Could not auto-discover PRs from git history")
     all_discovered_prs = CONFIGURED_PRS
+    last_tag = None
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PHASE 1: RULE-BASED CONFLICT DETECTION
-# ══════════════════════════════════════════════════════════════════════════════
-section(1, "PHASE 1: Rule-Based Conflict Detection")
+# ── Resolve Operation Plan ────────────────────────────────────────────────────
+section(2, "Resolving Operation Plan")
 
 print(f"\n  📥 INPUTS:")
 print(f"  ├─ Strategy: {STRATEGY.upper()}")
-print(f"  ├─ Last Tag: {discovery_result.last_tag if discovery_result else 'N/A'}")
-print(f"  ├─ PRs Merged Since Tag: {len(all_discovered_prs) if all_discovered_prs else 0}")
+print(f"  ├─ Last Tag: {last_tag or 'N/A'}")
+print(f"  ├─ PRs Since Tag: {len(all_discovered_prs) if all_discovered_prs else 0}")
 print(f"  └─ Configured PRs: {CONFIGURED_PRS}")
 
-print(f"\n  🔄 PROCESSING:")
+print(f"\n  🔄 PLANNING:")
 
-# Get PR list based on strategy
-if STRATEGY == "include":
-    pr_list = CONFIGURED_PRS
-    print(f"  ├─ Mode: INCLUDE strategy")
-    print(f"  ├─ Cherry-picking PRs: {pr_list}")
-    print(f"  └─ Total PRs to process: {len(pr_list)}")
-else:
-    # Exclude strategy: use all discovered PRs minus excluded ones
-    if all_discovered_prs:
-        pr_list = [pr for pr in all_discovered_prs if pr not in CONFIGURED_PRS]
-        print(f"  ├─ Mode: EXCLUDE strategy")
-        print(f"  ├─ Total discovered: {len(all_discovered_prs)} PRs")
-        print(f"  ├─ Excluding: {CONFIGURED_PRS}")
-        print(f"  └─ PRs to process: {len(pr_list)}")
+# Determine which PRs to operate on based on strategy
+if STRATEGY == "exclude":
+    # EXCLUDE: Take all discovered PRs, revert the configured ones
+    excluded_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
+    not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
+    intake_prs = [pr for pr in all_discovered_prs if pr not in excluded_prs]
+    operation_prs = list(reversed(excluded_prs))  # Revert newest first
+    operation_type = "revert"
+    
+    print(f"  ├─ Total PRs in window: {len(all_discovered_prs)}")
+    print(f"  ├─ PRs to REVERT (exclude): {excluded_prs}")
+    print(f"  ├─ PRs going into release: {intake_prs}")
+    if not_found:
+        print(f"  {warn(f'└─ PRs not found in window (ignored): {not_found}')}")
     else:
-        print(f"  {warn('No PRs discovered - cannot use exclude strategy')}")
-        pr_list = []
-
-# Run rule-based conflict analyzer
-print(f"\n  🔍 Running Conflict Detection Engine...")
-logger.info(f"Phase 1: Analyzing {len(pr_list)} PRs for conflicts")
-analyzer = PRConflictAnalyzer(args.repo)
-analysis_results = analyzer.analyze(pr_list)
-logger.info(f"Conflict analysis complete: {len(analysis_results.get('conflicts', {}).get('all', []))} conflicts detected")
-
-# Save analysis results
-analysis_file = Path("/tmp/rdkb-release-conflicts/conflict_analysis.json")
-analysis_file.parent.mkdir(parents=True, exist_ok=True)
-with open(analysis_file, "w") as f:
-    json.dump(analysis_results, f, indent=2)
-
-# Extract high-severity conflicts
-critical_conflicts = analysis_results["conflicts"]["by_severity"]["critical"]
-medium_conflicts = analysis_results["conflicts"]["by_severity"]["medium"]
-low_conflicts = analysis_results["conflicts"]["by_severity"]["low"]
-all_conflicts = analysis_results["conflicts"]["all"]
-
-# PHASE 1 OUTPUT SUMMARY
-print(f"\n  📤 OUTPUTS:")
-
-# Categorize conflicts
-file_overlap_conflicts = [c for c in all_conflicts if c.get('conflict_type') == 'file_overlap']
-timing_conflicts_list = [c for c in all_conflicts if c.get('conflict_type') == 'timing']
-critical_file_changes = [c for c in all_conflicts if c.get('conflict_type') == 'critical_files']
-
-# Show PR-to-PR conflicts (the important ones!)
-prs_with_actual_conflicts = set()
-for c in file_overlap_conflicts:
-    if c.get('conflicting_with'):
-        prs_with_actual_conflicts.add(c['pr_number'])
-        prs_with_actual_conflicts.update(c.get('conflicting_with', []))
-
-print(f"  ├─ PRs Analyzed: {len(pr_list)}")
-print(f"  ├─ PR-to-PR Conflicts: {len(file_overlap_conflicts)} (PRs modifying same files)")
-print(f"  ├─ Critical File Changes: {len(critical_file_changes)} (PRs touching important files)")
-print(f"  ├─ Timing Issues: {len(timing_conflicts_list)} (PRs merged close together)")
-print(f"  └─ Analysis Report: {analysis_file}")
-
-if file_overlap_conflicts:
-    print(f"\n  ⚠️  PR-TO-PR CONFLICTS (These PRs modify the SAME files):")
-    for conflict in file_overlap_conflicts[:10]:
-        pr1 = conflict['pr_number']
-        prs2 = conflict.get('conflicting_with', [])
-        shared = conflict.get('shared_files', [])
-        if prs2:
-            print(f"  🔴 PR #{pr1} ↔ PR {prs2}")
-            print(f"     Overlapping files: {', '.join(shared[:3])}")
-            if len(shared) > 3:
-                print(f"     ... and {len(shared) - 3} more files")
+        print(f"  └─ All configured PRs found")
 else:
-    print(f"\n  ✅ NO PR-TO-PR CONFLICTS: All PRs modify different files")
+    # INCLUDE: Cherry-pick only the configured PRs
+    included_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
+    not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
+    intake_prs = included_prs
+    operation_prs = included_prs  # Cherry-pick oldest first
+    operation_type = "cherry-pick"
+    
+    print(f"  ├─ Total PRs in window: {len(all_discovered_prs)}")
+    print(f"  ├─ PRs to CHERRY-PICK (include): {included_prs}")
+    if not_found:
+        print(f"  {warn(f'└─ PRs not found in window (ignored): {not_found}')}")
+    else:
+        print(f"  └─ All configured PRs found")
 
-if critical_file_changes:
-    print(f"\n  ⚠️  CRITICAL FILE MODIFICATIONS (Review these carefully):")
-    for i, conflict in enumerate(critical_file_changes[:5], 1):
-        pr_num = conflict['pr_number']
-        files = conflict.get('shared_files', [])
-        print(f"  {i}. PR #{pr_num}")
-        print(f"     Files: {', '.join(files[:3])}")
-        if len(files) > 3:
-            print(f"     ... and {len(files) - 3} more files")
+print(f"\n  📤 OPERATION PLAN:")
+print(f"  ├─ Operation: {operation_type.upper()}")
+print(f"  ├─ PRs to process: {len(operation_prs)}")
+print(f"  └─ PRs in final release: {len(intake_prs)}")
 
-if timing_conflicts_list:
-    print(f"\n  ℹ️  TIMING ISSUES: {len(timing_conflicts_list)} PRs merged close together (review for dependencies)")
+# Fetch PR metadata for reporting
+print(f"\n  🔍 Fetching PR metadata...")
+pr_metadata = {}
+for pr_num in all_discovered_prs[:100]:  # Limit to avoid rate limits
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", str(pr_num), "--repo", args.repo, "--json", 
+             "number,title,author,mergedAt,url"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            pr_data = json.loads(result.stdout)
+            pr_metadata[pr_num] = pr_data
+    except Exception as e:
+        logger.warning(f"Failed to fetch metadata for PR #{pr_num}: {e}")
 
-print(f"\n  ✅ Phase 1 Complete - Conflicts identified and categorized")
-print(f"  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print(f"  ✅ Fetched metadata for {len(pr_metadata)} PRs")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PHASE 2: LLM-BASED INTELLIGENT CONFLICT RESOLUTION
-# ══════════════════════════════════════════════════════════════════════════════
-section(2, "PHASE 2: LLM-Based Intelligent Conflict Resolution")
-
-# Check if LLM is enabled
-llm_enabled = cfg.get("llm", {}).get("enabled", False)
-
-print(f"\n  📥 INPUTS FROM PHASE 1:")
-print(f"  ├─ Total PRs Analyzed: {len(pr_list)}")
-print(f"  ├─ Conflicts Detected: {len(all_conflicts)}")
-print(f"  ├─ PRs Requiring Decisions: {len(set(c['pr_number'] for c in all_conflicts))}")
-print(f"  └─ LLM Enabled: {llm_enabled}")
+# ── Create Release Branch ──────────────────────────────────────────────────────
+section(3, f"Creating Release Branch: {RELEASE_BRANCH}")
 
 print(f"\n  🔄 PROCESSING:")
+print(f"  ├─ Checking if branch '{RELEASE_BRANCH}' exists...")
 
-if not llm_enabled:
-    print(f"  {warn('⚠️  LLM is NOT enabled in config')}")
-    print(f"  ⚠️  Conflicts will require manual resolution")
-    print(f"  ℹ️  To enable: Set 'llm.enabled: true' in config")
-    decision_maker = None
+# Check if branch already exists
+branch_check = subprocess.run(
+    ["git", "rev-parse", "--verify", RELEASE_BRANCH],
+    capture_output=True, text=True
+)
+
+if branch_check.returncode == 0:
+    print(f"  {warn(f'Branch {RELEASE_BRANCH} already exists')}")
+    print(f"  ├─ Checking out existing branch...")
+    subprocess.run(["git", "checkout", RELEASE_BRANCH], check=True)
+    print(f"  ✅ Switched to existing branch")
 else:
-    try:
-        decision_maker = LLMPRDecisionMaker(cfg)
-        llm_provider = cfg.get("llm", {}).get("provider", "unknown")
-        llm_model = cfg.get("llm", {}).get("model", "unknown")
-        print(f"  ✅ LLM Engine Initialized")
-        print(f"  ├─ Provider: {llm_provider}")
-        print(f"  ├─ Model: {llm_model}")
-        print(f"  └─ Capabilities: Context Building, Conflict Resolution, Strategic Decisions")
-    except Exception as e:
-        print(f"  {err(f'❌ Failed to initialize LLM: {e}')}")
-        decision_maker = None
+    print(f"  ├─ Creating new branch from {BASE_BRANCH}...")
+    subprocess.run(["git", "checkout", "-b", RELEASE_BRANCH, BASE_BRANCH], check=True)
+    print(f"  ✅ Created and switched to {RELEASE_BRANCH}")
 
-# For each PR with conflicts, get LLM decision
-pr_decisions = {}
+# ── Execute Operations ─────────────────────────────────────────────────────────
+section(4, f"Executing {operation_type.upper()} Operations")
 
-if decision_maker:
-    # Get PRs that have conflicts
-    conflicted_prs = set()
-    for conflict in analysis_results["conflicts"]["all"]:
-        conflicted_prs.add(conflict["pr_number"])
-        conflicted_prs.update(conflict.get("conflicting_with", []))
+print(f"\n  📥 INPUTS:")
+print(f"  ├─ Operation: {operation_type.upper()}")
+print(f"  ├─ PRs to process: {len(operation_prs)}")
+print(f"  └─ LLM Conflict Resolution: {'ENABLED' if cfg.get('llm', {}).get('enabled', False) else 'DISABLED'}")
+
+print(f"\n  🔄 PROCESSING:")
+logger.info(f"Executing {operation_type} on {len(operation_prs)} PRs")
+
+# Initialize resolver
+resolver = PRLevelResolver(
+    repo=args.repo,
+    strategy=STRATEGY,
+    config=cfg,
+    pr_metadata=pr_metadata,
+    logger=logger
+)
+
+# Track results
+successful_prs = []
+failed_prs = []
+skipped_prs = []
+conflicts_resolved = 0
+
+# Execute each operation
+for i, pr_num in enumerate(operation_prs, 1):
+    pr_meta = pr_metadata.get(pr_num, {})
+    pr_title = pr_meta.get("title", f"PR #{pr_num}")[:50]
     
-    print(f"\n  🤖 LLM INTELLIGENT ANALYSIS:")
-    print(f"  ├─ Building Context: PR metadata, diffs, conflicts, dependencies")
-    print(f"  ├─ Analyzing: {len(conflicted_prs)} PRs with potential conflicts")
-    print(f"  ├─ Applying: Continuous learning from past resolutions")
-    print(f"  └─ Strategy: Risk assessment, impact analysis, dependency resolution")
+    print(f"\n  [{i}/{len(operation_prs)}] PR #{pr_num}: {pr_title}")
     
-    print(f"\n  🔍 Evaluating Each PR:")
-    logger.info(f"Phase 2: LLM evaluating {len(conflicted_prs)} conflicted PRs")
+    if operation_type == "cherry-pick":
+        action = ResolutionAction.INCLUDE
+    else:
+        action = ResolutionAction.EXCLUDE
     
-    for pr_num in sorted(conflicted_prs):
-        if pr_num not in analysis_results["pr_metadata"]:
-            continue
-        
-        pr_meta = analysis_results["pr_metadata"][pr_num]
-        
-        # Get PR diff
-        print(f"\n  Analyzing PR #{pr_num}...", end=" ")
-        result = subprocess.run(
-            ["gh", "pr", "diff", str(pr_num), "--repo", args.repo],
-            capture_output=True, text=True, timeout=30
-        )
-        pr_diff = result.stdout if result.returncode == 0 else ""
-        
-        # Get conflicts for this PR
-        pr_conflicts = [conflict for conflict in analysis_results["conflicts"]["all"] 
-                       if conflict["pr_number"] == pr_num]
-        
-        # Get semantic analysis for this PR (if available)
-        pr_semantic = analysis_results.get("pr_semantics", {}).get(pr_num)
-        
-        # Make decision
-        decision = decision_maker.decide_pr(
-            pr_number=pr_num,
-            pr_metadata=pr_meta,
-            pr_diff=pr_diff,
-            conflicts=pr_conflicts,
-            all_prs_metadata=analysis_results["pr_metadata"],
-            semantic_info=pr_semantic
-        )
-        
-        if decision:
-            pr_decisions[pr_num] = decision
-            emoji = "✅" if decision.decision == "INCLUDE" else "⏭️" if decision.decision == "EXCLUDE" else "🔍"
-            print(f"{emoji} {decision.decision} ({decision.confidence})")
-            print(f"    Rationale: {decision.rationale[:80]}...")
-        else:
-            print("❌ Decision failed")
-
-# Save decisions
-decisions_file = Path("/tmp/rdkb-release-conflicts/llm_decisions.json")
-with open(decisions_file, "w") as f:
-    json.dump({
-        str(k): {
-            "decision": v.decision,
-            "confidence": v.confidence,
-            "rationale": v.rationale,
-            "requires_prs": v.requires_prs,
-            "risks": v.risks,
-            "benefits": v.benefits
-        } for k, v in pr_decisions.items()
-    }, f, indent=2)
-
-# PHASE 2 OUTPUT SUMMARY
-include_count = sum(1 for d in pr_decisions.values() if d.decision == "INCLUDE")
-exclude_count = sum(1 for d in pr_decisions.values() if d.decision == "EXCLUDE")
-manual_count = sum(1 for d in pr_decisions.values() if d.decision == "MANUAL_REVIEW")
-high_confidence = sum(1 for d in pr_decisions.values() if d.confidence == "HIGH")
-
-print(f"\n  📤 OUTPUTS:")
-print(f"  ├─ Decisions Made: {len(pr_decisions)}")
-print(f"  │  ├─ ✅ INCLUDE: {include_count}")
-print(f"  │  ├─ ⏭️  EXCLUDE: {exclude_count}")
-print(f"  │  └─ 🔍 MANUAL_REVIEW: {manual_count}")
-print(f"  ├─ High Confidence: {high_confidence}/{len(pr_decisions)}")
-print(f"  └─ Report: {decisions_file}")
-
-if include_count > 0:
-    print(f"\n  ✅ RECOMMENDED TO INCLUDE:")
-    for pr_num, decision in sorted(pr_decisions.items()):
-        if decision.decision == "INCLUDE":
-            pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-            print(f"     • PR #{pr_num}: {pr_meta.get('title', 'N/A')[:50]}")
-            print(f"       Confidence: {decision.confidence} | {decision.rationale[:70]}...")
-
-if exclude_count > 0:
-    print(f"\n  ⏭️  RECOMMENDED TO EXCLUDE:")
-    for pr_num, decision in sorted(pr_decisions.items()):
-        if decision.decision == "EXCLUDE":
-            pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-            print(f"     • PR #{pr_num}: {pr_meta.get('title', 'N/A')[:50]}")
-            print(f"       Reason: {decision.rationale[:70]}...")
-
-print(f"\n  ✅ Phase 2 Complete")
-print(f"  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-# ── Dependency Validation ──────────────────────────────────────────────────────
-section(2.5, "Dependency Validation & Recommendations")
-
-# Validate dependencies if we have discovery results and LLM decisions
-if discovery_result and pr_decisions:
-    validation = validate_pr_dependencies(
-        configured_prs=CONFIGURED_PRS,
-        strategy=STRATEGY,
-        all_prs=all_discovered_prs,
-        llm_decisions=pr_decisions
-    )
+    success = resolver.execute_pr(pr_num, action)
     
-    print_dependency_warnings(validation)
-    
-    # Save validation results
-    validation_file = Path("/tmp/rdkb-release-conflicts/dependency_validation.json")
-    with open(validation_file, "w") as f:
-        json.dump({
-            "missing_dependencies": validation.missing_dependencies,
-            "orphaned_dependencies": validation.orphaned_dependencies,
-            "warnings": validation.warnings,
-            "recommendations": validation.recommendations
-        }, f, indent=2)
-    print(f"\n  💾 Validation saved to: {validation_file}")
-else:
-    print(f"  {info('Skipping dependency validation (no LLM decisions or discovery data)')}")
+    if success:
+        successful_prs.append(pr_num)
+        print(f"  ✅ {operation_type.upper()} completed successfully")
+        
+        # Check if conflicts were resolved
+        if resolver.last_had_conflicts:
+            conflicts_resolved += 1
+            logger.info(f"PR #{pr_num}: Conflict resolved by LLM")
+    else:
+        failed_prs.append(pr_num)
+        print(f"  ❌ {operation_type.upper()} failed - requires manual resolution")
+        logger.error(f"PR #{pr_num}: Operation failed")
+
+# ── Execution Summary ──────────────────────────────────────────────────────────
+elapsed = time.time() - START_TIME
+
+print(f"\n  📤 EXECUTION SUMMARY:")
+print(f"  ├─ Total PRs Attempted: {len(operation_prs)}")
+print(f"  ├─ ✅ Successful: {len(successful_prs)}")
+print(f"  ├─ ❌ Failed: {len(failed_prs)}")
+print(f"  ├─ ⏭️  Skipped: {len(skipped_prs)}")
+print(f"  ├─ 🤖 Conflicts Auto-Resolved: {conflicts_resolved}")
+print(f"  └─ ⏱️  Time Elapsed: {elapsed:.1f}s")
+
+if failed_prs:
+    print(f"\n  ⚠️  FAILED PRs (require manual resolution):")
+    for pr_num in failed_prs:
+        pr_meta = pr_metadata.get(pr_num, {})
+        pr_title = pr_meta.get("title", f"PR #{pr_num}")[:50]
+        print(f"     • PR #{pr_num}: {pr_title}")
+        print(f"       URL: {pr_meta.get('url', 'N/A')}")
+
+logger.info(f"Execution complete: {len(successful_prs)} successful, {len(failed_prs)} failed")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PHASE 3: EXECUTE RELEASE OPERATIONS & CREATE DRAFT PR
+# PHASE 5: GENERATE REPORT & CREATE DRAFT PR
+# ══════════════════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════════════════
 section(3, "Executing Release Operations & Creating Draft PR")
 
