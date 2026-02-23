@@ -721,7 +721,8 @@ git commit --allow-empty
 # View conflict analysis
 cat /tmp/rdkb-release-conflicts/conflict_analysis.json | jq '.pr_semantics'
 
-# View LLM decisions cat /tmp/rdkb-release-conflicts/llm_decisions.json | jq '.'
+# View LLM decisions
+cat /tmp/rdkb-release-conflicts/llm_decisions.json | jq '.'
 
 # Check logs for detailed execution trace
 tail -f /tmp/rdkb-release-conflicts/logs/*.log
