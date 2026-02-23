@@ -141,7 +141,7 @@ print(f"  {'Component':<16}: {COMPONENT_NAME}")
 print(f"  {'Repo':<16}: {args.repo}")
 print(f"  {'Version':<16}: {VERSION}")
 print(f"  {'Strategy':<16}: {STRATEGY.upper()}")
-print(f"  {'Create From':<16}: {BASE_BRANCH} (branch base)")
+print(f"  {'Base Branch':<16}: {BASE_BRANCH}")
 print(f"  {'Merge To':<16}: {TARGET_BRANCH} (draft PR target)")
 print(f"  {'Release Branch':<16}: {RELEASE_BRANCH}")
 print(f"  {'Dry Run':<16}: {DRY_RUN}")
@@ -170,11 +170,13 @@ if discovery_result:
     # Store discovered PRs for later use
     all_discovered_prs = discovery_result.all_prs
     last_tag = discovery_result.last_tag
+    last_tag_ref = discovery_result.last_tag  # Store for branch creation
 else:
     print(f"  {warn('Could not auto-discover PRs - proceeding with configured list')}")
     logger.warning("Could not auto-discover PRs from git history")
     all_discovered_prs = CONFIGURED_PRS
     last_tag = None
+    last_tag_ref = None
 
 # ── Resolve Operation Plan ────────────────────────────────────────────────────
 section(2, "Resolving Operation Plan")
@@ -247,6 +249,19 @@ section(3, f"Creating Release Branch: {RELEASE_BRANCH}")
 print(f"\n  🔄 PROCESSING:")
 print(f"  ├─ Checking if branch '{RELEASE_BRANCH}' exists...")
 
+# Determine the starting point for the release branch
+if STRATEGY == "include":
+    # INCLUDE: Start from last tag (clean slate, cherry-pick only wanted PRs)
+    branch_start_point = last_tag_ref if last_tag_ref else BASE_BRANCH
+    strategy_note = f"last tag {last_tag_ref}" if last_tag_ref else BASE_BRANCH
+else:
+    # EXCLUDE: Start from develop (has all PRs, revert unwanted ones)
+    branch_start_point = BASE_BRANCH
+    strategy_note = BASE_BRANCH
+
+print(f"  ├─ Strategy: {STRATEGY.upper()}")
+print(f"  ├─ Starting point: {strategy_note}")
+
 # Check if branch already exists
 branch_check = subprocess.run(
     ["git", "rev-parse", "--verify", RELEASE_BRANCH],
@@ -259,8 +274,8 @@ if branch_check.returncode == 0:
     subprocess.run(["git", "checkout", RELEASE_BRANCH], check=True)
     print(f"  ✅ Switched to existing branch")
 else:
-    print(f"  ├─ Creating new branch from {BASE_BRANCH}...")
-    subprocess.run(["git", "checkout", "-b", RELEASE_BRANCH, BASE_BRANCH], check=True)
+    print(f"  ├─ Creating new branch from {branch_start_point}...")
+    subprocess.run(["git", "checkout", "-b", RELEASE_BRANCH, branch_start_point], check=True)
     print(f"  ✅ Created and switched to {RELEASE_BRANCH}")
 
 # ── Execute Operations ─────────────────────────────────────────────────────────
