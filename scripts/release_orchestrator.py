@@ -84,9 +84,30 @@ if not config_path.exists():
 with open(config_path) as f:
     cfg = yaml.safe_load(f)
 
+def parse_pr_list(prs):
+    """Parse PR list supporting both formats:
+    - Individual items: [1, 2, 3]
+    - Comma-separated: ["1, 3, 5, 10"]
+    - Mixed: [1, "2, 3", 4]
+    """
+    result = []
+    if not prs:
+        return result
+    
+    for item in prs:
+        if isinstance(item, int):
+            result.append(item)
+        elif isinstance(item, str):
+            # Split by comma and parse each number
+            for num in item.split(','):
+                num = num.strip()
+                if num:
+                    result.append(int(num))
+    return result
+
 VERSION = args.version or cfg.get("version")
 STRATEGY = cfg.get("strategy", "").lower()
-CONFIGURED_PRS = [int(p) for p in cfg.get("prs") or []]
+CONFIGURED_PRS = parse_pr_list(cfg.get("prs"))
 DRY_RUN = args.dry_run or cfg.get("dry_run", False)
 RELEASE_BRANCH = cfg.get("release_branch", f"release/{VERSION}")
 COMPONENT_NAME = cfg.get("component_name") or args.repo.split("/")[-1]

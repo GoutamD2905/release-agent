@@ -27,7 +27,7 @@ base_branch: "develop"
 #    - Agent will warn if excluded PRs have dependents
 # ───────────────────────────────────────────────────────────────────
 
-strategy: "exclude" # Options: "include" or "exclude"
+strategy: "include" # Options: "include" or "exclude"
 
 # ─── PR List ───────────────────────────────────────────────────────
 # For INCLUDE strategy: PRs to include in release
@@ -39,9 +39,18 @@ strategy: "exclude" # Options: "include" or "exclude"
 #   ✅ Detect dependencies between PRs
 #   ✅ Warn about missing dependencies
 #   ✅ Recommend additional PRs to include/exclude
-# ───────────────────────────────────────────────────────────────────
+#
+# Flexible syntax - both formats are supported:
+#   prs:
+#     - 1, 3, 5, 10, 11, 12    # Comma-separated on one line
+#
+#   prs:
+#     - 1                       # Individual items on separate lines
+#     - 3
+#     - 5
+# ───────────────────────────────────────────────────────────────
 prs:
-  - 40
+  - 1, 3, 5, 10, 11, 12
 
 # ─── LLM Configuration ─────────────────────────────────────────────
 # LLM analyzes each PR for:
