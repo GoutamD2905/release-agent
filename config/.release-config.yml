@@ -1,73 +1,121 @@
-# ═══════════════════════════════════════════════════════════════════
-# RDK-B Release Agent Configuration
-# ═══════════════════════════════════════════════════════════════════
-# This configuration enables SMART PR DISCOVERY and DEPENDENCY ANALYSIS:
-#   • Auto-discovers all PRs merged since last git tag
-#   • Validates your include/exclude list against discovered PRs
-#   • Detects dependency chains between PRs
-#   • Warns about missing or conflicting dependencies
-#   • Provides intelligent recommendations
-# ═══════════════════════════════════════════════════════════════════
+# # ═══════════════════════════════════════════════════════════════════
+# # RDK-B Release Agent Configuration
+# # ═══════════════════════════════════════════════════════════════════
+# # This configuration enables SMART PR DISCOVERY and DEPENDENCY ANALYSIS:
+# #   • Auto-discovers all PRs merged since last git tag
+# #   • Validates your include/exclude list against discovered PRs
+# #   • Detects dependency chains between PRs
+# #   • Warns about missing or conflicting dependencies
+# #   • Provides intelligent recommendations
+# # ═══════════════════════════════════════════════════════════════════
+
+# component_name: "advsec"
+# version: "2.2.0"
+# base_branch: "develop"
+
+# # ─── Release Strategy ──────────────────────────────────────────────
+# # Two strategies available:
+# #
+# # 1. INCLUDE Strategy (default):
+# #    - List ONLY the PRs you want in this release
+# #    - Agent will warn if dependencies are missing
+# #    - Agent will show all other available PRs
+# #
+# # 2. EXCLUDE Strategy:
+# #    - Agent auto-discovers ALL PRs since last tag
+# #    - List ONLY the PRs you want to EXCLUDE
+# #    - Agent will warn if excluded PRs have dependents
+# # ───────────────────────────────────────────────────────────────────
+
+# strategy: "include" # Options: "include" or "exclude"
+
+# # ─── PR List ───────────────────────────────────────────────────────
+# # For INCLUDE strategy: PRs to include in release
+# # For EXCLUDE strategy: PRs to exclude from release
+# #
+# # The agent will:
+# #   ✅ Auto-discover all PRs merged since last tag
+# #   ✅ Compare with your list and show differences
+# #   ✅ Detect dependencies between PRs
+# #   ✅ Warn about missing dependencies
+# #   ✅ Recommend additional PRs to include/exclude
+# #
+# # Flexible syntax - both formats are supported:
+# #   prs:
+# #     - 1, 3, 5, 10, 11, 12    # Comma-separated on one line
+# #
+# #   prs:
+# #     - 1                       # Individual items on separate lines
+# #     - 3
+# #     - 5
+# #
+# # REAL CONFLICT TEST: PRs #19, #20, #21 all modify SAME LINES (100-106)
+# # in cosa_adv_security_dml.c - GUARANTEED conflicts!
+# # ───────────────────────────────────────────────────────────────
+# prs:
+#   - 19, 20, 21
+
+# # ─── LLM Configuration ─────────────────────────────────────────────
+# # LLM analyzes each PR for:
+# #   • Conflict resolution strategy
+# #   • Dependency detection (requires_prs field)
+# #   • Risk/benefit assessment
+# #   • Strategic INCLUDE/EXCLUDE decisions
+# # ───────────────────────────────────────────────────────────────────
+# # llm:
+# #   enabled: true
+# #   provider: "ollama"
+# #   model: "deepseek-coder:6.7b"
+# #   api_key_env: "OLLAMA_API_KEY"
+# #   endpoint: "http://localhost:11434/v1/chat/completions"
+
+# llm:
+#   enabled: true
+#   provider: "azureopenai"
+#   model: "claude-sonnet-4-6"
+#   api_key_env: "AZURE_API_KEY"
+#   endpoint: "https://rdkb-dev-resource.openai.azure.com/anthropic/v1/messages"
+
+#   # model: "qwen2.5-coder:14b"
+#   # api_key_env: "OLLAMA_API_KEY"
+#   # endpoint: "http://localhost:11434/v1/chat/completions"
+
+# # Other LLM Providers (uncomment and modify as needed):
+# #
+# # Google Gemini:
+# #   provider: "gemini"
+# #   model: "gemini-2.0-flash-exp"
+# #   api_key_env: "GOOGLE_API_KEY"
+# #
+# # GitHub Copilot (via GitHub Models):
+# #   provider: "githubcopilot"
+# #   model: "gpt-4o"
+# #   api_key_env: "GITHUB_TOKEN"
+# #
+# # Ollama (Local, no API key needed):
+# #   provider: "ollama"
+# #   model: "deepseek-coder:6.7b"
+# #   api_key_env: "OLLAMA_API_KEY"
+# #   endpoint: "http://localhost:11434/v1/chat/completions"
+# #
+# # Azure OpenAI:
+# #   provider: "azureopenai"
+# #   model: "gpt-4o"
+# #   endpoint: "https://your-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-08-01-preview"
+# #   api_key_env: "AZURE_OPENAI_API_KEY"
+
+
+dry_run: false
+
 
 component_name: "advsec"
 version: "2.2.0"
 base_branch: "develop"
 
-# ─── Release Strategy ──────────────────────────────────────────────
-# Two strategies available:
-#
-# 1. INCLUDE Strategy (default):
-#    - List ONLY the PRs you want in this release
-#    - Agent will warn if dependencies are missing
-#    - Agent will show all other available PRs
-#
-# 2. EXCLUDE Strategy:
-#    - Agent auto-discovers ALL PRs since last tag
-#    - List ONLY the PRs you want to EXCLUDE
-#    - Agent will warn if excluded PRs have dependents
-# ───────────────────────────────────────────────────────────────────
+strategy: "include"
 
-strategy: "include" # Options: "include" or "exclude"
-
-# ─── PR List ───────────────────────────────────────────────────────
-# For INCLUDE strategy: PRs to include in release
-# For EXCLUDE strategy: PRs to exclude from release
-#
-# The agent will:
-#   ✅ Auto-discover all PRs merged since last tag
-#   ✅ Compare with your list and show differences
-#   ✅ Detect dependencies between PRs
-#   ✅ Warn about missing dependencies
-#   ✅ Recommend additional PRs to include/exclude
-#
-# Flexible syntax - both formats are supported:
-#   prs:
-#     - 1, 3, 5, 10, 11, 12    # Comma-separated on one line
-#
-#   prs:
-#     - 1                       # Individual items on separate lines
-#     - 3
-#     - 5
-#
-# REAL CONFLICT TEST: PRs #19, #20, #21 all modify SAME LINES (100-106)
-# in cosa_adv_security_dml.c - GUARANTEED conflicts!
-# ───────────────────────────────────────────────────────────────
 prs:
   - 19, 20, 21
-
-# ─── LLM Configuration ─────────────────────────────────────────────
-# LLM analyzes each PR for:
-#   • Conflict resolution strategy
-#   • Dependency detection (requires_prs field)
-#   • Risk/benefit assessment
-#   • Strategic INCLUDE/EXCLUDE decisions
-# ───────────────────────────────────────────────────────────────────
-# llm:
-#   enabled: true
-#   provider: "ollama"
-#   model: "deepseek-coder:6.7b"
-#   api_key_env: "OLLAMA_API_KEY"
-#   endpoint: "http://localhost:11434/v1/chat/completions"
 
 llm:
   enabled: true
@@ -75,34 +123,3 @@ llm:
   model: "claude-sonnet-4-6"
   api_key_env: "AZURE_API_KEY"
   endpoint: "https://rdkb-dev-resource.openai.azure.com/anthropic/v1/messages"
-
-  # model: "qwen2.5-coder:14b"
-  # api_key_env: "OLLAMA_API_KEY"
-  # endpoint: "http://localhost:11434/v1/chat/completions"
-
-# Other LLM Providers (uncomment and modify as needed):
-#
-# Google Gemini:
-#   provider: "gemini"
-#   model: "gemini-2.0-flash-exp"
-#   api_key_env: "GOOGLE_API_KEY"
-#
-# GitHub Copilot (via GitHub Models):
-#   provider: "githubcopilot"
-#   model: "gpt-4o"
-#   api_key_env: "GITHUB_TOKEN"
-#
-# Ollama (Local, no API key needed):
-#   provider: "ollama"
-#   model: "deepseek-coder:6.7b"
-#   api_key_env: "OLLAMA_API_KEY"
-#   endpoint: "http://localhost:11434/v1/chat/completions"
-#
-# Azure OpenAI:
-#   provider: "azureopenai"
-#   model: "gpt-4o"
-#   endpoint: "https://your-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-08-01-preview"
-#   api_key_env: "AZURE_OPENAI_API_KEY"
-
-
-dry_run: false
