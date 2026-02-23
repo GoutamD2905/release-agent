@@ -618,6 +618,63 @@ print(c(BOLD, "═" * 70))
 # PHASE 4: CREATE DRAFT PULL REQUEST FOR COMPONENT REVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 if successful_prs and not DRY_RUN:
+    # ── Generate Comprehensive Report FIRST ─────────────────────────────────
+    logger.info("Generating comprehensive release report...")
+    print(f"\n  📄 Generating comprehensive report for PR body...")
+    
+    # Collect validation data
+    validation_warnings = []
+    validation_recommendations = []
+    missing_deps = {}
+    if 'validation' in locals():
+        validation_warnings = validation.warnings
+        validation_recommendations = validation.recommendations
+        missing_deps = validation.missing_dependencies
+    
+    # Build report data
+    report_data = ReleaseReport(
+        component_name=COMPONENT_NAME,
+        version=VERSION,
+        strategy=STRATEGY,
+        base_branch=BASE_BRANCH,
+        release_branch=RELEASE_BRANCH,
+        last_tag=discovery_result.last_tag if discovery_result else None,
+        total_prs_discovered=len(all_discovered_prs) if all_discovered_prs else 0,
+        prs_configured=CONFIGURED_PRS,
+        conflicts_detected=len(analysis_results.get('conflicts', {}).get('all', [])),
+        conflicts_critical=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('critical', [])),
+        conflicts_medium=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('medium', [])),
+        conflicts_low=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('low', [])),
+        llm_decisions={
+            k: {
+                'decision': v.decision,
+                'confidence': v.confidence,
+                'rationale': v.rationale,
+                'requires_prs': v.requires_prs,
+                'risks': v.risks,
+                'benefits': v.benefits
+            } for k, v in pr_decisions.items()
+        } if pr_decisions else {},
+        prs_to_include=[k for k, v in pr_decisions.items() if v.decision == "INCLUDE"],
+        prs_to_exclude=[k for k, v in pr_decisions.items() if v.decision == "EXCLUDE"],
+        prs_manual_review=[k for k, v in pr_decisions.items() if v.decision == "MANUAL_REVIEW"],
+        dependency_warnings=validation_warnings,
+        dependency_recommendations=validation_recommendations,
+        missing_dependencies=missing_deps,
+        successful_prs=successful_prs,
+        failed_prs=failed_prs,
+        skipped_prs=skipped_prs,
+        execution_time=elapsed,
+        dry_run=False,  # Set to False for PR creation
+        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
+    
+    # Generate report
+    report_gen = ReportGenerator()
+    report_file = report_gen.generate_report(report_data)
+    print(f"  ✅ Report generated: {report_file}")
+    
+    # ── Push & Create Draft PR ──────────────────────────────────────────────
     section(4, "Creating Draft Pull Request for Component Review")
     
     print(f"\n  📥 INPUTS:")
@@ -663,60 +720,18 @@ if successful_prs and not DRY_RUN:
         
         # Create draft PR
         print(f"\n  📝 Step 2: Creating draft pull request...")
-        print(f"  ├─ Building comprehensive PR description")
-        print(f"  ├─ Including all LLM decisions and analysis")
-        print(f"  └─ Adding detailed summary for component owner")
+        print(f"  ├─ Using comprehensive report as PR body")
+        print(f"  ├─ Base: {TARGET_BRANCH}")
+        print(f"  └─ Head: {RELEASE_BRANCH}")
         
-        # Build PR body with summary
-        pr_body = f"""# Release {VERSION}
-
-## Summary
-- **Strategy**: {STRATEGY.upper()}
-- **Created From**: {BASE_BRANCH}
-- **Merging To**: {TARGET_BRANCH}
-- **PRs Included**: {len(successful_prs)}
-- **PRs Skipped**: {len(skipped_prs)}
-- **LLM Decisions**: {len(pr_decisions)}
-
-## Included PRs
-"""
-        for pr_num in successful_prs:
-            pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-            pr_title = pr_meta.get("title", f"PR #{pr_num}")
-            pr_body += f"- #{pr_num}: {pr_title}\\n"
+        # Read the report content to use as PR body
+        pr_body = Path(report_file).read_text()
         
-        if skipped_prs:
-            pr_body += f"\\n## Skipped PRs\\n"
-            for pr_num in skipped_prs:
-                pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-                pr_title = pr_meta.get("title", f"PR #{pr_num}")
-                if pr_num in pr_decisions:
-                    reason = pr_decisions[pr_num].rationale[:100]
-                    pr_body += f"- #{pr_num}: {pr_title} (Reason: {reason})\\n"
-                else:
-                    pr_body += f"- #{pr_num}: {pr_title}\\n"
-        
-        if failed_prs:
-            pr_body += f"\\n## ⚠️ Requires Manual Review\\n"
-            for pr_num in failed_prs:
-                pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-                pr_title = pr_meta.get("title", f"PR #{pr_num}")
-                pr_body += f"- #{pr_num}: {pr_title}\\n"
-        
-        pr_body += f"""
-## LLM Analysis
-- **Conflicts Detected**: {len(analysis_results.get('conflicts', {}).get('all', []))}
-- **Critical Conflicts**: {len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('critical', []))}
-- **LLM Decisions Made**: {len(pr_decisions)}
-
-## Next Steps
-1. Review the included PRs and LLM decisions
-2. Test the release branch thoroughly
-3. If approved, convert this draft to a ready PR and merge
-
----
-*This PR was automatically created by the Release Agent with LLM-powered conflict resolution*
-"""
+        # Add notification if configured
+        notify = cfg.get("notify", [])
+        if notify:
+            notify_str = " ".join([f"@{n}" for n in notify])
+            pr_body += f"\n\n---\ncc: {notify_str}"
         
         # Create the draft PR using gh CLI
         pr_title = f"Release {VERSION}"
@@ -783,59 +798,67 @@ else:
 logger.info("Generating comprehensive release report...")
 print(f"\n  📄 Generating comprehensive report...")
 
-# Collect validation data
-validation_warnings = []
-validation_recommendations = []
-missing_deps = {}
-if 'validation' in locals():
-    validation_warnings = validation.warnings
-    validation_recommendations = validation.recommendations
-    missing_deps = validation.missing_dependencies
+# ── Generate Comprehensive Report ─────────────────────────────────────────────
+# Generate report for dry-run or when PR wasn't created
+if 'report_file' not in locals():
+    logger.info("Generating comprehensive release report...")
+    print(f"\n  📄 Generating comprehensive report...")
+    
+    # Collect validation data
+    validation_warnings = []
+    validation_recommendations = []
+    missing_deps = {}
+    if 'validation' in locals():
+        validation_warnings = validation.warnings
+        validation_recommendations = validation.recommendations
+        missing_deps = validation.missing_dependencies
 
-# Build report data
-report_data = ReleaseReport(
-    component_name=COMPONENT_NAME,
-    version=VERSION,
-    strategy=STRATEGY,
-    base_branch=BASE_BRANCH,
-    release_branch=RELEASE_BRANCH,
-    last_tag=discovery_result.last_tag if discovery_result else None,
-    total_prs_discovered=len(all_discovered_prs) if all_discovered_prs else 0,
-    prs_configured=CONFIGURED_PRS,
-    conflicts_detected=len(analysis_results.get('conflicts', {}).get('all', [])),
-    conflicts_critical=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('critical', [])),
-    conflicts_medium=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('medium', [])),
-    conflicts_low=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('low', [])),
-    llm_decisions={
-        k: {
-            'decision': v.decision,
-            'confidence': v.confidence,
-            'rationale': v.rationale,
-            'requires_prs': v.requires_prs,
-            'risks': v.risks,
-            'benefits': v.benefits
-        } for k, v in pr_decisions.items()
-    } if pr_decisions else {},
-    prs_to_include=[k for k, v in pr_decisions.items() if v.decision == "INCLUDE"],
-    prs_to_exclude=[k for k, v in pr_decisions.items() if v.decision == "EXCLUDE"],
-    prs_manual_review=[k for k, v in pr_decisions.items() if v.decision == "MANUAL_REVIEW"],
-    dependency_warnings=validation_warnings,
-    dependency_recommendations=validation_recommendations,
-    missing_dependencies=missing_deps,
-    successful_prs=successful_prs,
-    failed_prs=failed_prs,
-    skipped_prs=skipped_prs,
-    execution_time=elapsed,
-    dry_run=DRY_RUN,
-    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-)
+    # Build report data
+    report_data = ReleaseReport(
+        component_name=COMPONENT_NAME,
+        version=VERSION,
+        strategy=STRATEGY,
+        base_branch=BASE_BRANCH,
+        release_branch=RELEASE_BRANCH,
+        last_tag=discovery_result.last_tag if discovery_result else None,
+        total_prs_discovered=len(all_discovered_prs) if all_discovered_prs else 0,
+        prs_configured=CONFIGURED_PRS,
+        conflicts_detected=len(analysis_results.get('conflicts', {}).get('all', [])),
+        conflicts_critical=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('critical', [])),
+        conflicts_medium=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('medium', [])),
+        conflicts_low=len(analysis_results.get('conflicts', {}).get('by_severity', {}).get('low', [])),
+        llm_decisions={
+            k: {
+                'decision': v.decision,
+                'confidence': v.confidence,
+                'rationale': v.rationale,
+                'requires_prs': v.requires_prs,
+                'risks': v.risks,
+                'benefits': v.benefits
+            } for k, v in pr_decisions.items()
+        } if pr_decisions else {},
+        prs_to_include=[k for k, v in pr_decisions.items() if v.decision == "INCLUDE"],
+        prs_to_exclude=[k for k, v in pr_decisions.items() if v.decision == "EXCLUDE"],
+        prs_manual_review=[k for k, v in pr_decisions.items() if v.decision == "MANUAL_REVIEW"],
+        dependency_warnings=validation_warnings,
+        dependency_recommendations=validation_recommendations,
+        missing_dependencies=missing_deps,
+        successful_prs=successful_prs,
+        failed_prs=failed_prs,
+        skipped_prs=skipped_prs,
+        execution_time=elapsed,
+        dry_run=DRY_RUN,
+        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
 
-# Generate report
-report_gen = ReportGenerator()
-report_file = report_gen.generate_report(report_data)
-
-print(f"  ✅ Comprehensive report generated: {report_file}")
-logger.info(f"Report generated: {report_file}")
+    # Generate report
+    report_gen = ReportGenerator()
+    report_file = report_gen.generate_report(report_data)
+    
+    print(f"  ✅ Comprehensive report generated: {report_file}")
+    logger.info(f"Report generated: {report_file}")
+else:
+    print(f"\n  📄 Report already generated for PR body: {report_file}")
 
 print(f"\n  📋 Review the report for complete analysis and recommendations")
 print(c(BOLD, "═" * 64))
