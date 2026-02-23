@@ -266,6 +266,15 @@ class PRLevelResolver:
                 print(f"  ✅ Successfully applied PR")
                 return True
             else:
+                # Check for "empty commit" case - changes already present
+                stderr_text = result.stderr.lower()
+                if "empty" in stderr_text and "cherry-pick" in stderr_text:
+                    print(f"  ℹ️  Changes already present in target branch (empty commit)")
+                    print(f"  ✅ Skipping cherry-pick (PR changes already applied)")
+                    # Abort the empty cherry-pick
+                    subprocess.run(["git", "cherry-pick", "--abort"], capture_output=True, text=True)
+                    return True  # Success - changes are already there
+                
                 # Check if we have conflicts
                 conflict_files = check_for_conflicts()
                 if conflict_files and self.conflict_resolver and pr_metadata:

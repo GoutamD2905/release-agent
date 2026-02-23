@@ -359,7 +359,45 @@ Both implementations share:
 **Best Overall Solution**: **Hybrid approach** combining rdkb's rule-based fast-path with our LLM strategic intelligence.
 
 **Next Steps**:
-1. Implement Option B (fast-path + LLM + validation)
+1. ✅ **IMPLEMENTED** - Option B (fast-path + LLM + validation)
 2. Test on real RDK-B release with both approaches
 3. Measure: resolution accuracy, time, cost, manual review rate
 4. Iterate based on results
+
+---
+
+## 9. Edge Cases Handled
+
+### Empty Cherry-Pick (Changes Already Present)
+
+**Scenario**: When creating a release branch from `develop` and cherry-picking PRs that were already merged to `develop`, Git detects an "empty commit" because the changes are already present.
+
+**Git Error**:
+```
+The previous cherry-pick is now empty, possibly due to conflict resolution.
+If you wish to commit it anyway, use:
+
+    git commit --allow-empty
+
+Otherwise, please use 'git cherry-pick --skip'
+```
+
+**Our Solution** (in [pr_level_resolver.py](../scripts/pr_level_resolver.py)):
+```python
+# Detect "empty commit" case - changes already present
+stderr_text = result.stderr.lower()
+if "empty" in stderr_text and "cherry-pick" in stderr_text:
+    print(f"  ℹ️  Changes already present in target branch (empty commit)")
+    print(f"  ✅ Skipping cherry-pick (PR changes already applied)")
+    subprocess.run(["git", "cherry-pick", "--abort"], capture_output=True)
+    return True  # Success - changes are already there
+```
+
+**Rationale**: This is NOT a failure - it means the PR changes are already in the release branch, which is exactly what we want. We abort the cherry-pick and continue successfully.
+
+**When This Occurs**:
+- INCLUDE strategy with PRs already merged to base branch
+- Release branch created from same base branch as PRs
+- Merge commits being cherry-picked with `-m 1` flag
+
+**Impact**: Prevents false failures and allows automated releases to proceed when changes are already present.
