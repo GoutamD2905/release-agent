@@ -2,10 +2,14 @@
 
 **Hybrid AI-powered bi-weekly release automation for RDK-B components** — combining rule-based intelligence with LLM strategic decisions for safe, automated release management.
 
-> **What's New**: Two-phase hybrid intelligence architecture (Feb 2026)  
-> ✅ Rule-based conflict detection + C code pattern analysis  
-> ✅ LLM strategic PR-level decisions (no code mutation)  
-> ✅ Complete semantic analysis (NULL checks, error handling, safety patterns)
+> **What's New**: Complete Logging & Reporting System (Feb 2026)  
+> ✅ Structured logging to console and file  
+> ✅ Comprehensive markdown reports for component owners  
+> ✅ Auto-discover all PRs merged since last git tag  
+> ✅ Automatic dependency detection between PRs  
+> ✅ Intelligent warnings for missing/conflicting dependencies  
+> ✅ Smart recommendations for include/exclude lists  
+> ✅ Complete audit trail and action items
 
 ---
 
@@ -47,7 +51,52 @@ python3 release-agent/scripts/release_orchestrator.py \
 
 ## 🧠 Hybrid Intelligence Architecture
 
+### Smart PR Discovery & Validation
+
+**Automatic PR Discovery** - No manual PR lists needed (optional):
+- 🏷️ Auto-discovers all PRs merged since the last git tag
+- 📊 Compares discovered PRs with your configured include/exclude list
+- ⚠️ Warns about missing dependencies
+- 💡 Provides intelligent recommendations
+
+**Dependency Intelligence**:
+- ✅ Detects when included PRs require other PRs
+- ❌ Warns when excluding PRs that others depend on
+- 🔗 Identifies dependency chains automatically
+- 📋 Shows all PRs found vs configured PRs
+
+**Example Output**:
+```
+🔍 Smart PR Discovery
+────────────────────────────────────────────────────────
+Last Tag        : v2.1.0
+Commits Since   : 47
+PRs Found       : 12
+
+All PRs since v2.1.0:
+  [✓] PR #120: Add NULL checks to network handler
+  [✓] PR #125: Fix memory leak in config parser
+  [ ] PR #130: Refactor logging system
+  [✓] PR #135: Security patch for buffer overflow
+  ... and 8 more
+
+Strategy        : INCLUDE
+Configured      : 3 PRs to INCLUDE
+
+⚠️  Dependency Warnings:
+  • PR #135 requires PR #130, but #130 is not included
+
+💡 Smart Recommendations:
+  → Consider adding PRs [130] to satisfy dependencies
+  → Found 9 additional PRs not in config: [130, 140, ...]
+```
+
 ### Two-Phase Approach
+
+**PHASE 0: Smart PR Discovery** (NEW!)
+- 🏷️ Auto-discover all PRs from git history
+- 📋 Validate configured PR lists
+- 🔗 Detect dependency requirements
 
 **PHASE 1: Rule-Based Intelligence**
 - 📋 Fetch PR metadata (via GitHub CLI)
@@ -65,8 +114,15 @@ python3 release-agent/scripts/release_orchestrator.py \
   - Detected conflicts
   - Code pattern analysis (semantic context)
   - Other PRs in release
+  - **Dependency requirements** (NEW!)
 - Makes binary decisions: INCLUDE / EXCLUDE / MANUAL_REVIEW
+- Identifies which other PRs are required
 - Provides confidence level and detailed rationale
+
+**PHASE 2.5: Dependency Validation** (NEW!)
+- ✅ Validates all dependencies are satisfied
+- ⚠️ Warns about missing or conflicting dependencies
+- 💡 Provides smart recommendations
 
 **PHASE 3: Execute Operations**
 - ✅ Cherry-pick/revert entire PRs
@@ -110,15 +166,101 @@ release-agent/
 ├── README.md                           # This file
 ├── scripts/
 │   ├── release_orchestrator.py         # Main orchestrator (creates branch + orchestrates)
+│   ├── pr_discovery.py                 # Phase 0: Smart PR discovery & validation (NEW!)
 │   ├── pr_conflict_analyzer.py         # Phase 1: Detection + semantics
 │   ├── llm_pr_decision.py              # Phase 2: LLM strategic decisions
 │   ├── code_pattern_analyzer.py        # C/C++ semantic code analysis
+│   ├── logger.py                       # Structured logging mechanism (NEW!)
+│   ├── report_generator.py             # Comprehensive report generation (NEW!)
 │   ├── llm_providers.py                # LLM API provider functions
 │   ├── pr_level_resolver.py            # PR-level conflict resolution
 │   └── utils.py                        # Shared utilities
 └── config/
     └── .release-config.yml             # Main configuration (all options)
 ```
+
+---
+
+## 📊 Logging & Reporting
+
+### Comprehensive Logging
+
+Every release operation is **fully logged** with:
+
+- **Console logging**: Real-time progress with color-coded levels
+- **File logging**: Detailed session logs with timestamps
+- **Structured format**: Easy to parse and analyze
+- **Log levels**: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+**Log files location**: `/tmp/rdkb-release-conflicts/logs/`
+
+**Example log entry**:
+```
+2026-02-23 14:30:45 | INFO     | analyze              | Phase 1: Analyzing 12 PRs for conflicts
+2026-02-23 14:30:48 | INFO     | analyze              | Conflict analysis complete: 3 conflicts detected
+2026-02-23 14:30:48 | WARNING  | validate_deps        | PR #135 requires PR #130, but #130 is not included
+```
+
+### Comprehensive Release Reports
+
+After each run, a **detailed markdown report** is generated for component owners:
+
+**Report location**: `/tmp/rdkb-release-conflicts/reports/`
+
+**Report includes**:
+- ✅ Executive Summary with key metrics
+- 🔍 Complete PR discovery details
+- ⚠️ Conflict analysis breakdown
+- 🤖 All LLM decisions with rationale
+- 🔗 Dependency validation results
+- 🚀 Execution results (if not dry run)
+- 💡 Smart recommendations for next steps
+- 📋 Action items for component owner
+
+**Example report structure**:
+```markdown
+# Release Report: advanced-security v2.2.0
+
+## 📊 Executive Summary
+- PRs Discovered: 12
+- Conflicts Detected: 3 (2 critical)
+- LLM Decisions: 5
+- To Include: 3 PRs
+- Manual Review: 2 PRs
+
+## 🔍 Smart PR Discovery
+Last Tag: v2.1.0
+PRs Found: [120, 125, 130, 135, ...]
+
+## 🤖 LLM Strategic Decisions
+### ✅ PR #120: INCLUDE (HIGH confidence)
+**Rationale**: Adds critical NULL checks...
+**Benefits**: Improves safety, low risk...
+
+## 💡 Recommendations
+1. Manual Review Required: PRs [135, 140]
+2. Add Missing Dependencies: PR [130]
+```
+
+### Output Files Generated
+
+Every run creates:
+
+1. **Log file**: `/tmp/rdkb-release-conflicts/logs/{component}_{version}_{timestamp}.log`
+2. **Comprehensive Report**: `/tmp/rdkb-release-conflicts/reports/{component}_{version}_report_{timestamp}.md`
+3. **Conflict Analysis**: `/tmp/rdkb-release-conflicts/conflict_analysis.json`
+4. **LLM Decisions**: `/tmp/rdkb-release-conflicts/llm_decisions.json`
+5. **Dependency Validation**: `/tmp/rdkb-release-conflicts/dependency_validation.json`
+
+**Component owners get**:
+- Clear, readable markdown report
+- Complete audit trail in logs
+- All decisions explained with rationale
+- Action items for next steps
+
+**📄 See**: [Example Report](docs/REPORT_EXAMPLE.md) for a complete sample
+
+---
 
 ---
 
@@ -162,6 +304,102 @@ llm:
 | `githubcopilot` | ✅ | ❌ | `gpt-4o` |
 | `azureopenai` | ✅ | ✅ | `gpt-4` |
 | `ollama` | ❌ | ✅ | `deepseek-coder:6.7b` |
+
+---
+
+## 🎯 Smart PR Discovery & Dependency Analysis
+
+### How It Works
+
+The agent automatically:
+
+1. **Discovers PRs** - Finds all PRs merged since the last git tag
+2. **Compares** - Shows which PRs you configured vs what was found
+3. **Analyzes Dependencies** - LLM identifies which PRs require other PRs
+4. **Validates** - Warns about missing or conflicting dependencies
+5. **Recommends** - Suggests PRs to add or remove
+
+### Example Workflow
+
+**Step 1: Component owner creates config**
+```yaml
+# Only specify the PRs they want
+strategy: "include"
+prs:
+  - 120  # Critical fix
+  - 135  # Security patch
+```
+
+**Step 2: Agent auto-discovers and validates**
+```
+🔍 Smart PR Discovery
+────────────────────────────────────────────────────────
+Last Tag        : v2.1.0
+Commits Since   : 47
+PRs Found       : 12
+
+All PRs since v2.1.0:
+  [✓] PR #120: Add NULL checks to network handler
+  [ ] PR #125: Fix memory leak in config parser
+  [ ] PR #130: Refactor logging system
+  [✓] PR #135: Security patch for buffer overflow
+  ... and 8 more
+
+Strategy        : INCLUDE
+Configured      : 2 PRs to INCLUDE
+⚠️  9 PRs found but not in config
+```
+
+**Step 3: LLM analyzes and detects dependencies**
+```
+🤖 LLM PR Decision Maker initialized
+
+Analyzing PR #120... ✅ INCLUDE (HIGH)
+  Rationale: Safety improvements with NULL checks
+  Requires PRs: []
+
+Analyzing PR #135... ✅ INCLUDE (HIGH)
+  Rationale: Critical security fix
+  Requires PRs: [130]  ⚠️  Dependency detected!
+```
+
+**Step 4: Dependency validation warns**
+```
+⚠️  Dependency Warnings:
+  • PR #135 requires PR #130, but #130 is not included
+  • PR #130 (Refactor logging) is needed by PR #135
+
+💡 Smart Recommendations:
+  → Consider adding PRs [130] to satisfy dependencies
+  → Found 9 additional PRs not in config: [125, 130, 140, ...]
+  → Review PR #125 (Fix memory leak) - not in release plan
+```
+
+**Step 5: Component owner updates config**
+```yaml
+strategy: "include"
+prs:
+  - 120  # Critical fix
+  - 130  # Required by 135 (dependency)
+  - 135  # Security patch
+```
+
+### Exclude Strategy Benefits
+
+With EXCLUDE strategy, you don't need to list ALL PRs:
+
+```yaml
+strategy: "exclude"
+prs:
+  - 99   # Known broken PR
+  - 150  # Feature not ready
+```
+
+Agent will:
+- Auto-discover all PRs since last tag
+- Include ALL except those listed
+- Warn if excluded PR has dependents
+- Show full impact of exclusions
 
 ---
 
