@@ -232,7 +232,7 @@ print(f"\n  🔄 PLANNING:")
 print(f"  ├─ Total PRs in window: {len(all_discovered_prs)}")
 
 if STRATEGY == "exclude":
-    # EXCLUDE: Take all discovered PRs, revert the configured ones
+    # EXCLUDE: Revert only the PRs in the exclude list from base_branch
     excluded_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
     not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
     intake_prs = [pr for pr in all_discovered_prs if pr not in excluded_prs]
@@ -240,37 +240,15 @@ if STRATEGY == "exclude":
     operation_type = "revert"
     
     print(f"  ├─ PRs to REVERT (exclude): {excluded_prs}")
+    print(f"  ├─ PRs going into release: {intake_prs}")
     if not_found:
         print(f"  {warn(f'└─ PRs not found in window (ignored): {not_found}')}")
     else:
         print(f"  └─ All configured PRs found")
 elif STRATEGY == "include":
-    # INCLUDE: Cherry-pick only the configured PRs
+    # INCLUDE: Cherry-pick only the configured PRs from base_branch
     included_prs = [pr for pr in CONFIGURED_PRS if pr in all_discovered_prs]
     not_found = [pr for pr in CONFIGURED_PRS if pr not in all_discovered_prs]
-    
-    # For PRs not found in history, fetch their commits directly from GitHub
-    if not_found and discovery_result:
-        print(f"  ├─ Fetching commits for PRs not in history: {not_found}")
-        for pr_num in not_found:
-            try:
-                result = subprocess.run(
-                    ["gh", "pr", "view", str(pr_num), "--repo", REPO, "--json", "headRefOid"],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    pr_data = json.loads(result.stdout)
-                    commit_sha = pr_data.get("headRefOid")
-                    if commit_sha:
-                        discovery_result.pr_commit_map[pr_num] = commit_sha
-                        included_prs.append(pr_num)
-                        print(f"     ✅ PR #{pr_num}: {commit_sha[:8]}")
-            except Exception as e:
-                logger.warning(f"Could not fetch commit for PR #{pr_num}: {e}")
-        
-        # Update not_found list
-        not_found = [pr for pr in CONFIGURED_PRS if pr not in discovery_result.pr_commit_map]
-    
     intake_prs = included_prs
     operation_prs = included_prs  # Cherry-pick oldest first
     operation_type = "cherry-pick"
@@ -310,13 +288,22 @@ section(3, f"Creating Release Branch: {RELEASE_BRANCH}")
 print(f"\n  🔄 PROCESSING:")
 print(f"  ├─ Checking if branch '{RELEASE_BRANCH}' exists...")
 
-# Determine the starting point for the release branch
-# Both strategies now start from develop for consistency
-branch_start_point = BASE_BRANCH
-strategy_note = BASE_BRANCH
+# Determine the starting point for the release branch based on strategy
+if STRATEGY == "include":
+    # INCLUDE: Start from last tag (clean slate), cherry-pick selected PRs
+    branch_start_point = last_tag_ref if last_tag_ref else BASE_BRANCH
+    strategy_note = f"tag {last_tag_ref} (clean slate)" if last_tag_ref else BASE_BRANCH
+    method_note = "Cherry-pick selected PRs"
+else:
+    # EXCLUDE: Start from base_branch, revert excluded PRs
+    branch_start_point = BASE_BRANCH
+    strategy_note = f"{BASE_BRANCH} (all PRs since {last_tag})"
+    method_note = "Revert only excluded PRs"
 
 print(f"  ├─ Strategy: {STRATEGY.upper()}")
+print(f"  ├─ Base Branch: {BASE_BRANCH}")
 print(f"  ├─ Starting point: {strategy_note}")
+print(f"  ├─ Method: {method_note}")
 
 # Check if branch already exists
 branch_check = subprocess.run(
@@ -333,12 +320,6 @@ else:
     print(f"  ├─ Creating new branch from {branch_start_point}...")
     subprocess.run(["git", "checkout", "-b", RELEASE_BRANCH, branch_start_point], check=True)
     print(f"  ✅ Created and switched to {RELEASE_BRANCH}")
-    
-    # For INCLUDE strategy: Reset to last tag, then cherry-pick selected PRs
-    if STRATEGY == "include" and last_tag_ref:
-        print(f"  ├─ Resetting to tag {last_tag_ref} (clean slate for INCLUDE strategy)...")
-        subprocess.run(["git", "reset", "--hard", last_tag_ref], check=True)
-        print(f"  ✅ Reset complete - ready to cherry-pick selected PRs")
 
 # ── Execute Operations ─────────────────────────────────────────────────────────
 section(4, f"Executing {operation_type.upper()} Operations")

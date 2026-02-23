@@ -16,15 +16,19 @@
 # # ─── Release Strategy ──────────────────────────────────────────────
 # # Two strategies available:
 # #
-# # 1. INCLUDE Strategy (default):
+# # 1. INCLUDE Strategy:
+# #    - Operation: CHERRY-PICK
+# #    - Starting Point: Last git tag (clean slate)
 # #    - List ONLY the PRs you want in this release
-# #    - Agent will warn if dependencies are missing
-# #    - Agent will show all other available PRs
+# #    - Selected PRs are cherry-picked from base_branch
+# #    - Result: Release contains ONLY the selected PRs
 # #
 # # 2. EXCLUDE Strategy:
-# #    - Agent auto-discovers ALL PRs since last tag
-# #    - List ONLY the PRs you want to EXCLUDE
-# #    - Agent will warn if excluded PRs have dependents
+# #    - Operation: REVERT
+# #    - Starting Point: base_branch (all PRs since last tag)
+# #    - List ONLY the PRs you want to EXCLUDE from release
+# #    - Excluded PRs are reverted from base_branch
+# #    - Result: Release contains ALL PRs except excluded ones
 # # ───────────────────────────────────────────────────────────────────
 
 # strategy: "include" # Options: "include" or "exclude"
