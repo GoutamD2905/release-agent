@@ -58,7 +58,10 @@ class PRLevelResolver:
         self.pr_commit_map = pr_commit_map or {}
         self.pr_metadata = pr_metadata or {}
         self.last_had_conflicts = False
+        self.last_conflict_details = None
+        self.all_conflicts = []  # Track all conflicts encountered
         self.resolution_log = Path("/tmp/rdkb-release-conflicts/pr_resolutions.json")
+        self.conflicts_log = Path("/tmp/rdkb-release-conflicts/detailed_conflicts.json")
         self.resolution_log.parent.mkdir(parents=True, exist_ok=True)
         
         # Initialize LLM conflict resolver if available and enabled
@@ -218,6 +221,11 @@ class PRLevelResolver:
         with open(self.resolution_log, "w") as f:
             json.dump(self.resolutions, f, indent=2)
     
+    def _save_conflicts_log(self):
+        """Save detailed conflicts log for reporting."""
+        with open(self.conflicts_log, "w") as f:
+            json.dump(self.all_conflicts, f, indent=2)
+    
     def _is_merge_commit(self, commit_sha: str) -> bool:
         """Check if a commit is a merge commit."""
         result = subprocess.run(
@@ -258,7 +266,13 @@ class PRLevelResolver:
             )
         
         # Apply the action
-        return self.apply_action(action, commit_sha, pr_number, pr_meta)
+        result = self.apply_action(action, commit_sha, pr_number, pr_meta)
+        
+        # Save conflicts log if any conflicts were encountered
+        if self.all_conflicts:
+            self._save_conflicts_log()
+        
+        return result
     
     def apply_action(self, action: ResolutionAction, commit_sha: str, pr_number: int = None, pr_metadata: Dict = None) -> bool:
         """
@@ -317,6 +331,27 @@ class PRLevelResolver:
                 # Check if we have conflicts
                 conflict_files = check_for_conflicts()
                 if conflict_files and self.conflict_resolver and pr_metadata:
+                    print(f"  ⚠️  Conflicts detected in {len(conflict_files)} file(s)")
+                    
+                    # Get detailed conflict information
+                    detailed_conflicts = get_detailed_conflict_info(conflict_files)
+                    self.last_conflict_details = {
+                        'pr_number': pr_number,
+                        'files': conflict_files,
+                        'detailed_conflicts': detailed_conflicts,
+                        'operation': self.mode
+                    }
+                    self.all_conflicts.append(self.last_conflict_details)
+                    self.last_had_conflicts = True
+                    
+                    # Display conflict details
+                    for file_info in detailed_conflicts:
+                        print(f"     • {file_info['file']}: {file_info['total_conflicts']} conflict(s)")
+                        for i, conflict in enumerate(file_info['conflicts'][:2], 1):
+                            print(f"       - Lines {conflict['start_line']}-{conflict['end_line']}")
+                        if file_info['total_conflicts'] > 2:
+                            print(f"       - ...and {file_info['total_conflicts'] - 2} more conflicts")
+                    
                     # Try to resolve conflicts using LLM
                     print(f"  🔧 Attempting LLM-powered conflict resolution...")
                     resolved = self.conflict_resolver.resolve_all_conflicts(
@@ -386,6 +421,88 @@ def check_for_conflicts() -> List[str]:
         return []
     
     return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
+
+
+def get_detailed_conflict_info(conflict_files: List[str]) -> List[Dict]:
+    """
+    Extract detailed conflict information for each conflicted file.
+    
+    Returns:
+        List of dicts with file, line ranges, and conflict markers
+    """
+    detailed_conflicts = []
+    
+    for file_path in conflict_files:
+        try:
+            # Get the diff for this file
+            diff_result = subprocess.run(
+                ["git", "diff", file_path],
+                capture_output=True, text=True
+            )
+            
+            if diff_result.returncode != 0:
+                continue
+            
+            # Parse conflict markers and line ranges
+            lines = diff_result.stdout.splitlines()
+            conflicts_in_file = []
+            current_conflict = None
+            line_num = 0
+            
+            for line in lines:
+                # Track line numbers from diff hunks
+                if line.startswith('@@'):
+                    # Extract line number from hunk header: @@ -old,count +new,count @@
+                    import re
+                    match = re.search(r'@@\s+-\d+(?:,\d+)?\s+\+(\d+)', line)
+                    if match:
+                        line_num = int(match.group(1))
+                    continue
+                
+                if line.startswith('+') or line.startswith(' '):
+                    line_num += 1
+                
+                # Detect conflict markers
+                if line.startswith('+<<<<<<< '):
+                    current_conflict = {
+                        'start_line': line_num,
+                        'our_branch': line.replace('+<<<<<<< ', '').strip(),
+                        'our_content': [],
+                        'their_content': [],
+                        'base_content': []
+                    }
+                elif current_conflict and line.startswith('+||||||| '):
+                    current_conflict['base_branch'] = line.replace('+||||||| ', '').strip()
+                    current_conflict['in_base'] = True
+                elif current_conflict and line.startswith('+======'):
+                    current_conflict['in_base'] = False
+                    current_conflict['in_theirs'] = True
+                elif current_conflict and line.startswith('+>>>>>>> '):
+                    current_conflict['end_line'] = line_num
+                    current_conflict['their_branch'] = line.replace('+>>>>>>> ', '').strip()
+                    conflicts_in_file.append(current_conflict)
+                    current_conflict = None
+                elif current_conflict:
+                    if line.startswith('+'):
+                        content = line[1:]
+                        if current_conflict.get('in_base'):
+                            current_conflict['base_content'].append(content)
+                        elif current_conflict.get('in_theirs'):
+                            current_conflict['their_content'].append(content)
+                        else:
+                            current_conflict['our_content'].append(content)
+            
+            if conflicts_in_file:
+                detailed_conflicts.append({
+                    'file': file_path,
+                    'conflicts': conflicts_in_file,
+                    'total_conflicts': len(conflicts_in_file)
+                })
+        
+        except Exception as e:
+            print(f"  Warning: Could not parse conflicts in {file_path}: {e}")
+    
+    return detailed_conflicts
 
 
 # ── CLI for testing ───────────────────────────────────────────────────────────

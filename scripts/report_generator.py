@@ -186,67 +186,96 @@ class ReportGenerator:
         f.write("---\n\n")
     
     def _write_conflict_analysis(self, f, data: ReleaseReport) -> None:
-        """Write conflict analysis section."""
+        """Write conflict analysis section with detailed information."""
         f.write("## ⚠️ Conflict Analysis\n\n")
         
-        f.write(f"**Total Conflicts Detected**: {data.conflicts_detected}\n\n")
+        # Load detailed conflict data from runtime
+        detailed_conflicts_file = self.data_dir / "detailed_conflicts.json"
+        has_detailed_conflicts = detailed_conflicts_file.exists()
         
-        # Severity breakdown table
-        f.write("### Severity Breakdown\n\n")
-        f.write("| Severity | Count | Description |\n")
-        f.write("|:--------:|:-----:|-------------|\n")
-        f.write(f"| 🔴 **CRITICAL** | {data.conflicts_critical} | PRs modifying critical system files or APIs |\n")
-        f.write(f"| 🟡 **MEDIUM** | {data.conflicts_medium} | PRs with overlapping file changes |\n")
-        f.write(f"| 🟢 **LOW** | {data.conflicts_low} | Minor timing or dependency issues |\n")
-        f.write("\n")
-        
-        # Load detailed conflict data
-        conflict_file = self.data_dir / "conflict_analysis.json"
-        if conflict_file.exists():
-            with open(conflict_file) as cf:
-                conflict_data = json.load(cf)
+        if has_detailed_conflicts:
+            with open(detailed_conflicts_file) as cf:
+                detailed_conflicts = json.load(cf)
             
-            # Critical conflicts table
-            critical_conflicts = conflict_data.get("conflicts", {}).get("by_severity", {}).get("critical", [])
-            if critical_conflicts:
-                f.write("### 🔴 Critical Conflicts (Requires Immediate Attention)\n\n")
-                f.write("| PR # | Issue | Affected Files |\n")
-                f.write("|------|-------|----------------|\n")
-                for conflict in critical_conflicts[:10]:
-                    pr_num = conflict['pr_number']
-                    reason = conflict['reason'].replace('|', '\\|')[:60]
-                    files = conflict.get('shared_files', [])
-                    files_str = ', '.join([f"`{f}`" for f in files[:2]])
-                    if len(files) > 2:
-                        files_str += f" +{len(files)-2} more"
-                    f.write(f"| #{pr_num} | {reason} | {files_str} |\n")
-                if len(critical_conflicts) > 10:
-                    f.write(f"\n> *...and {len(critical_conflicts) - 10} more critical conflicts*\n")
+            if detailed_conflicts:
+                total_conflicts = len(detailed_conflicts)
+                total_files = sum(len(c['files']) for c in detailed_conflicts)
+                
+                f.write(f"**Total Conflicts Encountered**: {total_conflicts} PR(s) with conflicts\n")
+                f.write(f"**Total Files Affected**: {total_files}\n\n")
+                
+                # Detailed conflicts table
+                f.write("### 🔴 Detailed Conflict Information\n\n")
+                f.write("| PR # | Operation | Files | Conflict Details |\n")
+                f.write("|------|-----------|-------|------------------|\n")
+                
+                for conflict_info in detailed_conflicts:
+                    pr_num = conflict_info['pr_number']
+                    operation = conflict_info['operation']
+                    files = conflict_info['files']
+                    detailed = conflict_info.get('detailed_conflicts', [])
+                    
+                    # Build detailed info string
+                    details_parts = []
+                    for file_info in detailed[:3]:  # Show first 3 files
+                        file_name = file_info['file']
+                        conflicts_count = file_info['total_conflicts']
+                        # Get line ranges
+                        line_ranges = []
+                        for conf in file_info['conflicts'][:2]:  # First 2 conflicts per file
+                            line_ranges.append(f"L{conf['start_line']}-{conf['end_line']}")
+                        if file_info['conflicts']:
+                            range_str = ", ".join(line_ranges)
+                            if file_info['total_conflicts'] > 2:
+                                range_str += f" +{file_info['total_conflicts']-2} more"
+                            details_parts.append(f"`{file_name}` ({range_str})")
+                    
+                    if len(detailed) > 3:
+                        details_parts.append(f"...+{len(detailed)-3} more files")
+                    
+                    files_str = f"{len(files)} file(s)"
+                    details_str = "<br>".join(details_parts) if details_parts else "No line details"
+                    
+                    f.write(f"| #{pr_num} | {operation} | {files_str} | {details_str} |\n")
+                
                 f.write("\n")
+                
+                # Expandable detailed view
+                f.write("<details>\n")
+                f.write("<summary><b>📋 Click to view full conflict details</b></summary>\n\n")
+                
+                for conflict_info in detailed_conflicts:
+                    pr_num = conflict_info['pr_number']
+                    f.write(f"\n#### PR #{pr_num} Conflicts\n\n")
+                    
+                    for file_info in conflict_info.get('detailed_conflicts', []):
+                        f.write(f"**File**: `{file_info['file']}`\n\n")
+                        f.write(f"- **Total Conflicts**: {file_info['total_conflicts']}\n")
+                        
+                        for i, conf in enumerate(file_info['conflicts'], 1):
+                            f.write(f"\n**Conflict {i}**: Lines {conf['start_line']}-{conf['end_line']}\n")
+                            f.write(f"- **Our Branch**: {conf.get('our_branch', 'N/A')}\n")
+                            f.write(f"- **Their Branch**: {conf.get('their_branch', 'N/A')}\n")
+                            
+                            if conf.get('our_content'):
+                                f.write(f"- **Our Changes**: {len(conf['our_content'])} line(s)\n")
+                            if conf.get('their_content'):
+                                f.write(f"- **Their Changes**: {len(conf['their_content'])} line(s)\n")
+                        
+                        f.write("\n")
+                
+                f.write("</details>\n\n")
+            else:
+                f.write("> ✅ **No conflicts encountered during execution**. All PRs applied cleanly.\n\n")
+        else:
+            # Fallback to simple format
+            f.write(f"**Total Conflicts Detected**: {data.conflicts_detected}\n\n")
             
-            # Medium conflicts summary
-            medium_conflicts = conflict_data.get("conflicts", {}).get("by_severity", {}).get("medium", [])
-            if medium_conflicts:
-                f.write("### 🟡 Medium Conflicts (Review Recommended)\n\n")
-                f.write("| PR # | Issue | Affected Files |\n")
-                f.write("|------|-------|----------------|\n")
-                for conflict in medium_conflicts[:5]:
-                    pr_num = conflict['pr_number']
-                    reason = conflict['reason'].replace('|', '\\|')[:60]
-                    files = conflict.get('shared_files', [])
-                    files_str = ', '.join([f"`{f}`" for f in files[:2]])
-                    if len(files) > 2:
-                        files_str += f" +{len(files)-2} more"
-                    f.write(f"| #{pr_num} | {reason} | {files_str} |\n")
-                if len(medium_conflicts) > 5:
-                    f.write(f"\n> *...and {len(medium_conflicts) - 5} more medium conflicts*\n")
-                f.write("\n")
-        
-        if data.conflicts_detected == 0:
-            f.write("> ✅ **No conflicts detected**. All PRs can be applied cleanly.\n\n")
+            if data.conflicts_detected == 0:
+                f.write("> ✅ **No conflicts detected**. All PRs can be applied cleanly.\n\n")
         
         f.write("---\n\n")
-    
+
     def _write_llm_decisions(self, f, data: ReleaseReport) -> None:
         """Write LLM decisions section."""
         f.write("## 🤖 LLM Strategic Decisions\n\n")
