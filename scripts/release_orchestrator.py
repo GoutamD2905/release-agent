@@ -198,27 +198,51 @@ all_conflicts = analysis_results["conflicts"]["all"]
 
 # PHASE 1 OUTPUT SUMMARY
 print(f"\n  📤 OUTPUTS:")
-print(f"  ├─ Total Conflicts Detected: {len(all_conflicts)}")
-print(f"  │  ├─ 🔴 CRITICAL: {len(critical_conflicts)}")
-print(f"  │  ├─ 🟡 MEDIUM: {len(medium_conflicts)}")
-print(f"  │  └─ 🟢 LOW: {len(low_conflicts)}")
+
+# Categorize conflicts
+file_overlap_conflicts = [c for c in all_conflicts if c.get('conflict_type') == 'file_overlap']
+timing_conflicts_list = [c for c in all_conflicts if c.get('conflict_type') == 'timing']
+critical_file_changes = [c for c in all_conflicts if c.get('conflict_type') == 'critical_files']
+
+# Show PR-to-PR conflicts (the important ones!)
+prs_with_actual_conflicts = set()
+for c in file_overlap_conflicts:
+    if c.get('conflicting_with'):
+        prs_with_actual_conflicts.add(c['pr_number'])
+        prs_with_actual_conflicts.update(c.get('conflicting_with', []))
+
 print(f"  ├─ PRs Analyzed: {len(pr_list)}")
-print(f"  ├─ PRs with Conflicts: {len(set(c['pr_number'] for c in all_conflicts))}")
+print(f"  ├─ PR-to-PR Conflicts: {len(file_overlap_conflicts)} (PRs modifying same files)")
+print(f"  ├─ Critical File Changes: {len(critical_file_changes)} (PRs touching important files)")
+print(f"  ├─ Timing Issues: {len(timing_conflicts_list)} (PRs merged close together)")
 print(f"  └─ Analysis Report: {analysis_file}")
 
-if critical_conflicts:
-    print(f"\n  🔴 CRITICAL CONFLICTS DETAILS:")
-    for i, conflict in enumerate(critical_conflicts[:5], 1):
-        print(f"  {i}. PR #{conflict['pr_number']}: {conflict['reason']}")
-        if conflict.get('shared_files'):
-            print(f"     Files: {', '.join(conflict['shared_files'][:3])}")
-    if len(critical_conflicts) > 5:
-        print(f"  ... and {len(critical_conflicts) - 5} more")
+if file_overlap_conflicts:
+    print(f"\n  ⚠️  PR-TO-PR CONFLICTS (These PRs modify the SAME files):")
+    for conflict in file_overlap_conflicts[:10]:
+        pr1 = conflict['pr_number']
+        prs2 = conflict.get('conflicting_with', [])
+        shared = conflict.get('shared_files', [])
+        if prs2:
+            print(f"  🔴 PR #{pr1} ↔ PR {prs2}")
+            print(f"     Overlapping files: {', '.join(shared[:3])}")
+            if len(shared) > 3:
+                print(f"     ... and {len(shared) - 3} more files")
+else:
+    print(f"\n  ✅ NO PR-TO-PR CONFLICTS: All PRs modify different files")
 
-if medium_conflicts:
-    print(f"\n  🟡 MEDIUM CONFLICTS: {len(medium_conflicts)} detected")
-    for conflict in medium_conflicts[:2]:
-        print(f"  • PR #{conflict['pr_number']}: {conflict['reason'][:60]}...")
+if critical_file_changes:
+    print(f"\n  ⚠️  CRITICAL FILE MODIFICATIONS (Review these carefully):")
+    for i, conflict in enumerate(critical_file_changes[:5], 1):
+        pr_num = conflict['pr_number']
+        files = conflict.get('shared_files', [])
+        print(f"  {i}. PR #{pr_num}")
+        print(f"     Files: {', '.join(files[:3])}")
+        if len(files) > 3:
+            print(f"     ... and {len(files) - 3} more files")
+
+if timing_conflicts_list:
+    print(f"\n  ℹ️  TIMING ISSUES: {len(timing_conflicts_list)} PRs merged close together (review for dependencies)")
 
 print(f"\n  ✅ Phase 1 Complete - Conflicts identified and categorized")
 print(f"  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -335,33 +359,31 @@ exclude_count = sum(1 for d in pr_decisions.values() if d.decision == "EXCLUDE")
 manual_count = sum(1 for d in pr_decisions.values() if d.decision == "MANUAL_REVIEW")
 high_confidence = sum(1 for d in pr_decisions.values() if d.confidence == "HIGH")
 
-print(f"\n  📤 PHASE 2 OUTPUTS:")
-print(f"  ├─ LLM Decisions Made: {len(pr_decisions)}")
-print(f"  │  ├─ ✅ INCLUDE: {include_count} PRs")
-print(f"  │  ├─ ⏭️  EXCLUDE: {exclude_count} PRs")
-print(f"  │  └─ 🔍 MANUAL_REVIEW: {manual_count} PRs")
-print(f"  ├─ High Confidence Decisions: {high_confidence}/{len(pr_decisions)}")
-print(f"  └─ Decisions Report: {decisions_file}")
+print(f"\n  📤 OUTPUTS:")
+print(f"  ├─ Decisions Made: {len(pr_decisions)}")
+print(f"  │  ├─ ✅ INCLUDE: {include_count}")
+print(f"  │  ├─ ⏭️  EXCLUDE: {exclude_count}")
+print(f"  │  └─ 🔍 MANUAL_REVIEW: {manual_count}")
+print(f"  ├─ High Confidence: {high_confidence}/{len(pr_decisions)}")
+print(f"  └─ Report: {decisions_file}")
 
 if include_count > 0:
-    print(f"\n  ✅ PRs RECOMMENDED FOR INCLUSION:")
+    print(f"\n  ✅ RECOMMENDED TO INCLUDE:")
     for pr_num, decision in sorted(pr_decisions.items()):
         if decision.decision == "INCLUDE":
             pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-            pr_title = pr_meta.get("title", "N/A")[:60]
-            print(f"  • PR #{pr_num}: {pr_title}")
-            print(f"    Confidence: {decision.confidence} | Rationale: {decision.rationale[:80]}...")
+            print(f"     • PR #{pr_num}: {pr_meta.get('title', 'N/A')[:50]}")
+            print(f"       Confidence: {decision.confidence} | {decision.rationale[:70]}...")
 
 if exclude_count > 0:
-    print(f"\n  ⏭️  PRs RECOMMENDED FOR EXCLUSION:")
+    print(f"\n  ⏭️  RECOMMENDED TO EXCLUDE:")
     for pr_num, decision in sorted(pr_decisions.items()):
         if decision.decision == "EXCLUDE":
             pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-            pr_title = pr_meta.get("title", "N/A")[:60]
-            print(f"  • PR #{pr_num}: {pr_title}")
-            print(f"    Reason: {decision.rationale[:80]}...")
+            print(f"     • PR #{pr_num}: {pr_meta.get('title', 'N/A')[:50]}")
+            print(f"       Reason: {decision.rationale[:70]}...")
 
-print(f"\n  ✅ Phase 2 Complete - LLM decisions finalized")
+print(f"\n  ✅ Phase 2 Complete")
 print(f"  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 # ── Dependency Validation ──────────────────────────────────────────────────────
@@ -452,31 +474,38 @@ conflicts_resolved = 0
 print(f"\n  📝 Processing {len(pr_list)} PRs:")
 
 for pr_num in pr_list:
-    print(f"\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(f"\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-    pr_title = pr_meta.get("title", "Unknown")[:70]
-    print(f"  🔹 PR #{pr_num}: {pr_title}")
-    print(f"  Author: {pr_meta.get('author', 'unknown')} | Files: {len(pr_meta.get('files_changed', []))}")
+    pr_title = pr_meta.get("title", "Unknown")[:60]
+    pr_files = pr_meta.get("files_changed", [])
+    
+    print(f"  📌 PR #{pr_num}: {pr_title}")
+    print(f"     Author: {pr_meta.get('author', 'unknown')} | Files: {len(pr_files)} | +{pr_meta.get('additions', 0)}/-{pr_meta.get('deletions', 0)}")
+    
+    if pr_files:
+        print(f"     Modified: {', '.join(pr_files[:3])}")
+        if len(pr_files) > 3:
+            print(f"     ... and {len(pr_files) - 3} more files")
     
     # Check if we have an LLM decision
     if pr_num in pr_decisions:
         decision = pr_decisions[pr_num]
-        print(f"  LLM Decision: {decision.decision} (Confidence: {decision.confidence})")
+        print(f"     LLM: {decision.decision} ({decision.confidence} confidence)")
         
         if decision.decision == "EXCLUDE":
-            print(f"  ⏭️  • EXCLUDED (per LLM recommendation)")
-            print(f"  • Reason: {decision.rationale}")
+            print(f"  ⏭️  SKIPPED - {decision.rationale[:80]}")
             skipped_prs.append(pr_num)
             continue
     
     # Get commit SHA from PR metadata
     commit_sha = pr_meta.get("merge_commit_sha", "")
     if not commit_sha:
-        print(f"  ❌ • ERROR: Could not find merge commit SHA")
+        print(f"  ❌ ERROR: No merge commit SHA (PR may not be merged yet)")
         failed_prs.append(pr_num)
         continue
     
-    print(f"  🔄 Attempting {mode}...")
+    print(f"     Commit: {commit_sha[:12]}...")
+    print(f"  🔄 Cherry-picking...")
     
     # Attempt operation with automatic conflict resolution
     action = ResolutionAction(
@@ -490,15 +519,15 @@ for pr_num in pr_list:
     success = resolver.apply_action(action, commit_sha, pr_num, pr_meta)
     
     if success:
-        print(f"  ✅ • SUCCESS: PR applied to {RELEASE_BRANCH}")
+        print(f"  ✅ SUCCESS - PR applied to {RELEASE_BRANCH}")
         successful_prs.append(pr_num)
     else:
         # Check for conflicts
         conflict_files = check_for_conflicts()
         
         if conflict_files:
-            print(f"  🚨 • CONFLICT detected in {len(conflict_files)} files")
-            print(f"  🤖 Invoking LLM conflict resolution...")
+            print(f"  ⚠️  CONFLICT in {len(conflict_files)} file(s): {', '.join(conflict_files[:2])}")
+            print(f"  🤖 Attempting LLM-powered resolution...")
             
             # Use PR-level resolver for strategic decision
             action = resolver.handle_conflict(
@@ -512,67 +541,69 @@ for pr_num in pr_list:
             # Apply the action with conflict resolution
             if resolver.apply_action(action, commit_sha, pr_num, pr_meta):
                 if action.action == "INCLUDE":
-                    print(f"  ✅ • RESOLVED: Conflicts auto-resolved by LLM")
+                    print(f"  ✅ RESOLVED - Conflicts automatically fixed by LLM")
                     successful_prs.append(pr_num)
                     conflicts_resolved += len(conflict_files)
                 else:
-                    print(f"  ⏭️  • SKIPPED: {action.reason}")
+                    print(f"  ⏭️  SKIPPED - {action.reason[:60]}")
                     skipped_prs.append(pr_num)
             elif action.action == "MANUAL":
-                print(f"  🔴 • MANUAL REVIEW REQUIRED")
-                print(f"  • Reason: {action.reason}")
+                print(f"  🔴 MANUAL REVIEW REQUIRED - {action.reason[:60]}")
                 failed_prs.append(pr_num)
             else:
-                print(f"  ❌ • FAILED: {action.reason}")
+                print(f"  ❌ FAILED - {action.reason[:60]}")
                 failed_prs.append(pr_num)
         else:
-            print(f"  ❌ • FAILED: Operation failed without conflicts")
+            print(f"  ❌ FAILED - Cherry-pick failed (no conflicts detected)")
             failed_prs.append(pr_num)
 
 # PHASE 3 OUTPUT SUMMARY
-print(f"\n  📤 PHASE 3 OUTPUTS:")
-print(f"  ├─ Total PRs Processed: {len(pr_list)}")
-print(f"  │  ├─ ✅ Successful: {len(successful_prs)} PRs")
-print(f"  │  ├─ ⏭️  Skipped: {len(skipped_prs)} PRs")
-print(f"  │  └─ 🔴 Failed/Manual: {len(failed_prs)} PRs")
-print(f"  ├─ Conflicts Auto-Resolved: {conflicts_resolved}")
-print(f"  ├─ Release Branch: {RELEASE_BRANCH}")
-print(f"  └─ Status: {'Ready for Draft PR' if successful_prs else 'No PRs to release'}")
+print(f"\n")
+print(f"  ═══════════════════════════════════════════════════════════════")
+print(f"  📊 PHASE 3 SUMMARY")
+print(f"  ═══════════════════════════════════════════════════════════════")
+print(f"  ✅ Successful:         {len(successful_prs)} PR(s)")
+print(f"  ⏭️  Skipped:            {len(skipped_prs)} PR(s)")
+print(f"  🔴 Failed/Manual:      {len(failed_prs)} PR(s)")
+print(f"  🔧 Conflicts Resolved: {conflicts_resolved}")
+print(f"  ═══════════════════════════════════════════════════════════════")
 
 if successful_prs:
-    print(f"\n  ✅ SUCCESSFULLY APPLIED PRs:")
+    print(f"\n  ✅ SUCCESSFULLY APPLIED:")
     for pr_num in successful_prs:
         pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-        pr_title = pr_meta.get("title", "N/A")[:60]
-        print(f"  • PR #{pr_num}: {pr_title}")
+        print(f"     • PR #{pr_num}: {pr_meta.get('title', 'N/A')[:60]}")
 
 if failed_prs:
     print(f"\n  🔴 REQUIRES MANUAL REVIEW:")
     for pr_num in failed_prs:
         pr_meta = analysis_results["pr_metadata"].get(pr_num, {})
-        pr_title = pr_meta.get("title", "N/A")[:60]
-        print(f"  • PR #{pr_num}: {pr_title}")
+        print(f"     • PR #{pr_num}: {pr_meta.get('title', 'N/A')[:60]}")
 
-print(f"\n  ✅ Phase 3 Complete - Release operations finished")
-print(f"  ═════════════════════════════════════════════════════════════")
+print(f"\n  ✅ Phase 3 Complete")
+print(f"  ═══════════════════════════════════════════════════════════════\n")
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 elapsed = time.time() - START_TIME
-banner("Release Operation Complete")
-print(f"  {'Total Time':<20}: {elapsed:.1f}s")
-print(f"  {'Successful PRs':<20}: {len(successful_prs)}")
-print(f"  {'Skipped PRs':<20}: {len(skipped_prs)}")
-print(f"  {'Failed/Manual PRs':<20}: {len(failed_prs)}")
-print(f"  {'Conflicts Resolved':<20}: {conflicts_resolved}")
+print(f"\n")
+print(c(BOLD, "═" * 70))
+print(c(BOLD, "  RELEASE OPERATION COMPLETE"))
+print(c(BOLD, "═" * 70))
+print(f"  Total Time:          {elapsed:.1f}s")
+print(f"  Successful:          {len(successful_prs)} PR(s)")
+print(f"  Skipped:             {len(skipped_prs)} PR(s)")
+print(f"  Failed/Manual:       {len(failed_prs)} PR(s)")
+print(f"  Conflicts Resolved:  {conflicts_resolved}")
+print(c(BOLD, "═" * 70))
 
 if successful_prs:
-    print(f"\n  ✅ Successful: {successful_prs}")
+    print(f"\n  ✅ Success: {successful_prs}")
 if skipped_prs:
-    print(f"\n  ⏭️  Skipped: {skipped_prs}")
+    print(f"  ⏭️  Skipped: {skipped_prs}")
 if failed_prs:
-    print(f"\n  ❌ Needs Manual Review: {failed_prs}")
+    print(f"  ❌ Manual Review Needed: {failed_prs}")
 
-print(c(BOLD, "═" * 64))
+print(c(BOLD, "═" * 70))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHASE 4: CREATE DRAFT PULL REQUEST FOR COMPONENT REVIEW

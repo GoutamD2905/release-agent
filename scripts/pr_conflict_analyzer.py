@@ -357,9 +357,12 @@ class PRConflictAnalyzer:
                 "title": v.title,
                 "author": v.author,
                 "merged_at": v.merged_at,
+                "files_changed": list(v.files_changed),
                 "files_count": len(v.files_changed),
                 "additions": v.additions,
-                "deletions": v.deletions
+                "deletions": v.deletions,
+                "commits": v.commits,
+                "merge_commit_sha": v.merge_commit_sha
             } for k, v in self.pr_metadata.items()},
             "pr_semantics": {k: {
                 "pr_number": v.pr_number,
