@@ -314,10 +314,6 @@ class ReportGenerator:
             f.write("</details>\n\n")
         
         f.write("---\n\n")
-                    f.write(f"- {benefit}\n")
-                f.write("\n")
-        
-        f.write("---\n\n")
     
     def _write_dependency_validation(self, f, data: ReleaseReport) -> None:
         """Write dependency validation section."""
